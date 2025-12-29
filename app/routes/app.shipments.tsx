@@ -189,6 +189,104 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             }
         });
 
+        // 3. Create Fulfillment in Shopify for partial fulfillment support
+        try {
+            // First get the fulfillment order for this order
+            const fulfillmentOrdersResponse = await admin.graphql(
+                `#graphql
+                query getFulfillmentOrders($orderId: ID!) {
+                    order(id: $orderId) {
+                        fulfillmentOrders(first: 10) {
+                            edges {
+                                node {
+                                    id
+                                    status
+                                    lineItems(first: 50) {
+                                        edges {
+                                            node {
+                                                id
+                                                remainingQuantity
+                                                lineItem {
+                                                    id
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }`,
+                { variables: { orderId } }
+            );
+
+            const foData = await fulfillmentOrdersResponse.json();
+            const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges || [];
+
+            // Find an "open" fulfillment order
+            const openFO = fulfillmentOrders.find((fo: any) =>
+                ['OPEN', 'IN_PROGRESS'].includes(fo.node.status)
+            );
+
+            if (openFO) {
+                // Map our items to fulfillment order line items
+                const foLineItems = openFO.node.lineItems.edges;
+                const fulfillmentLineItems = items
+                    .map((item: any) => {
+                        const match = foLineItems.find((foli: any) =>
+                            foli.node.lineItem.id === item.id
+                        );
+                        if (match && match.node.remainingQuantity > 0) {
+                            return {
+                                fulfillmentOrderLineItemId: match.node.id,
+                                quantity: Math.min(item.quantity, match.node.remainingQuantity)
+                            };
+                        }
+                        return null;
+                    })
+                    .filter(Boolean);
+
+                if (fulfillmentLineItems.length > 0) {
+                    // Create the fulfillment
+                    await admin.graphql(
+                        `#graphql
+                        mutation fulfillmentCreateV2($fulfillment: FulfillmentV2Input!) {
+                            fulfillmentCreateV2(fulfillment: $fulfillment) {
+                                fulfillment {
+                                    id
+                                    status
+                                }
+                                userErrors {
+                                    field
+                                    message
+                                }
+                            }
+                        }`,
+                        {
+                            variables: {
+                                fulfillment: {
+                                    lineItemsByFulfillmentOrder: [{
+                                        fulfillmentOrderId: openFO.node.id,
+                                        fulfillmentOrderLineItems: fulfillmentLineItems
+                                    }],
+                                    notifyCustomer: false,
+                                    trackingInfo: {
+                                        company: "Aras Kargo",
+                                        number: result.mok || "",
+                                        url: `https://kargotakip.araskargo.com.tr/mainpage.aspx?code=${result.mok}`
+                                    }
+                                }
+                            }
+                        }
+                    );
+                    console.log("Shopify fulfillment created for partial shipment");
+                }
+            }
+        } catch (fulfillmentError) {
+            console.error("Error creating Shopify fulfillment (non-blocking):", fulfillmentError);
+            // Don't fail the whole operation if fulfillment creation fails
+        }
+
         return json({ status: "success", message: `Kargo gönderildi! MÖK: ${result.mok}` });
     }
 
