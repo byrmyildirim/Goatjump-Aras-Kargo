@@ -25,70 +25,92 @@ import { sendPackageToAras, getShipmentStatus } from "../services/arasKargo.serv
 import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+    let orders = [];
+    let localShipments = [];
+    let settings = null;
+    let suppliers = [];
+    let errors: string[] = [];
+
     try {
         const { admin } = await authenticate.admin(request);
 
         // 1. Get Unfulfilled Orders from Shopify
-        const response = await admin.graphql(
-            `#graphql
-          query getUnfulfilledOrders {
-            orders(first: 50, query: "fulfillment_status:unfulfilled OR fulfillment_status:partial") {
-              edges {
-                node {
-                  id
-                  name
-                  createdAt
-                  fulfillmentStatus
-                  shippingAddress {
-                    firstName
-                    lastName
-                    address1
-                    address2
-                    city
-                    province
-                    zip
-                    phone
-                  }
-                  lineItems(first: 50) {
-                    edges {
-                      node {
-                        id
-                        title
-                        sku
-                        quantity
-                        fulfillableQuantity
+        try {
+            const response = await admin.graphql(
+                `#graphql
+              query getUnfulfilledOrders {
+                orders(first: 50, query: "fulfillment_status:unfulfilled OR fulfillment_status:partial") {
+                  edges {
+                    node {
+                      id
+                      name
+                      createdAt
+                      fulfillmentStatus
+                      shippingAddress {
+                        firstName
+                        lastName
+                        address1
+                        address2
+                        city
+                        province
+                        zip
+                        phone
+                      }
+                      lineItems(first: 50) {
+                        edges {
+                          node {
+                            id
+                            title
+                            sku
+                            quantity
+                            fulfillableQuantity
+                          }
+                        }
                       }
                     }
                   }
                 }
-              }
+              }`
+            );
+
+            const responseJson = await response.json();
+
+            if (responseJson.data && responseJson.data.orders) {
+                orders = responseJson.data.orders.edges.map((edge: any) => edge.node);
+            } else {
+                console.error("Shopify GraphQL data missing:", JSON.stringify(responseJson));
+                errors.push("Siparişler çekilemedi (Shopify Hatası)");
             }
-          }`
-        );
-
-        const responseJson = await response.json();
-
-        if (!responseJson.data || !responseJson.data.orders) {
-            console.error("Shopify GraphQL Error:", JSON.stringify(responseJson));
-            throw new Error("Failed to fetch orders from Shopify");
+        } catch (e) {
+            console.error("Error fetching orders:", e);
+            errors.push("Siparişler çekilirken hata oluştu.");
         }
 
-        const orders = responseJson.data.orders.edges.map((edge: any) => edge.node);
-
         // 2. Get local shipments
-        const localShipments = await prisma.shipment.findMany({
-            orderBy: { createdAt: 'desc' },
-            take: 20
-        });
+        try {
+            localShipments = await prisma.shipment.findMany({
+                orderBy: { createdAt: 'desc' },
+                take: 20
+            });
+        } catch (e) {
+            console.error("Error fetching shipments:", e);
+            errors.push("Geçmiş gönderiler yüklenemedi (Veritabanı Hatası)");
+        }
 
-        // 3. Get Settings and Suppliers for the UI
-        const settings = await prisma.arasKargoSettings.findFirst();
-        const suppliers = await prisma.supplier.findMany();
+        // 3. Get Settings and Suppliers
+        try {
+            settings = await prisma.arasKargoSettings.findFirst();
+            suppliers = await prisma.supplier.findMany();
+        } catch (e) {
+            console.error("Error fetching settings/suppliers:", e);
+            errors.push("Ayarlar yüklenemedi.");
+        }
 
-        return json({ orders, localShipments, settings, suppliers });
+        return json({ orders, localShipments, settings, suppliers, errors });
     } catch (error) {
-        console.error("Loader Error in app.shipments.tsx:", error);
-        throw error; // Re-throw to show error page, but now logged
+        console.error("Critical Loader Error:", error);
+        // Even if auth fails or catastrophic error, try not to crash
+        return json({ orders: [], localShipments: [], settings: null, suppliers: [], errors: ["Kritik Sistem Hatası: " + (error as Error).message] });
     }
 };
 
@@ -198,7 +220,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Shipments() {
-    const { orders, localShipments, suppliers } = useLoaderData<typeof loader>();
+    const { orders, localShipments, suppliers, errors } = useLoaderData<typeof loader>();
     const fetcher = useFetcher();
 
     const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
@@ -255,6 +277,14 @@ export default function Shipments() {
         <Page>
             <TitleBar title="Kargo İşlemleri" />
             <BlockStack gap="500">
+                {errors && errors.length > 0 && (
+                    <Banner tone="critical">
+                        <p>Aşağıdaki hatalar oluştu:</p>
+                        <ul>
+                            {errors.map((err, i) => <li key={i}>{err}</li>)}
+                        </ul>
+                    </Banner>
+                )}
                 <Layout>
                     <Layout.Section>
                         <Card>
