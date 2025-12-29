@@ -1,6 +1,6 @@
 # This file stores configurations for your Shopify app.
 
-scopes = "write_products"
+scopes = "write_products,read_orders,write_fulfillments"
 
 [webhooks]
 api_version = "2024-10"
