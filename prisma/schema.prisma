@@ -1,0 +1,91 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+// Shipment model - kargo gönderim kaydı
+model Shipment {
+  id              String   @id @default(cuid())
+  orderId         String   // Shopify Order ID (gid format)
+  orderNumber     String   // Readable order number (#1001)
+  mok             String   @unique // Müşteri Özel Kodu
+  trackingNumber  String?  // Aras Kargo takip numarası
+  status          ShipmentStatus @default(PENDING)
+  supplierId      String?  // Tedarikçi ID referansı
+  supplierName    String   // Tedarikçi adı
+  addressId       String   // Aras Kargo şube AddressID
+  pieceCount      Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  items           ShipmentItem[]
+  supplier        Supplier? @relation(fields: [supplierId], references: [id])
+}
+
+model ShipmentItem {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  lineItemId  String   // Shopify line item ID
+  sku         String
+  title       String
+  quantity    Int
+  
+  shipment    Shipment @relation(fields: [shipmentId], references: [id])
+}
+
+model Supplier {
+  id           String   @id @default(cuid())
+  name         String
+  supplierCode String   // MÖK için tedarikçi kodu (G04, G05...)
+  arasAddressId String  // Aras Kargo AddressID
+  createdAt    DateTime @default(now())
+  
+  shipments    Shipment[]
+}
+
+model ArasKargoSettings {
+  id                 String   @id @default("default")
+  senderUsername     String
+  senderPassword     String
+  senderCustomerCode String
+  queryUsername      String
+  queryPassword      String
+  queryCustomerCode  String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+enum ShipmentStatus {
+  PENDING       // Paket oluşturuldu
+  SENT_TO_ARAS  // Aras'a gönderildi, MÖK alındı
+  IN_TRANSIT    // Kargoda
+  DELIVERED     // Teslim edildi
+  CANCELLED     // İptal
+}
