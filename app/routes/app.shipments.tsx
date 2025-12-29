@@ -45,7 +45,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                       id
                       name
                       createdAt
-                      fulfillmentStatus
+                      displayFulfillmentStatus
                       shippingAddress {
                         firstName
                         lastName
@@ -302,7 +302,7 @@ export default function Shipments() {
                                         resourceName={{ singular: 'order', plural: 'orders' }}
                                         items={orders}
                                         renderItem={(item: any) => {
-                                            const { id, name, createdAt, fulfillmentStatus, shippingAddress } = item;
+                                            const { id, name, createdAt, displayFulfillmentStatus, shippingAddress } = item;
                                             return (
                                                 <ResourceItem
                                                     id={id}
@@ -317,8 +317,8 @@ export default function Shipments() {
                                                                 {shippingAddress?.firstName} {shippingAddress?.lastName} - {shippingAddress?.city}
                                                             </div>
                                                         </div>
-                                                        <Badge tone={fulfillmentStatus === 'PARTIAL' ? 'info' : 'warning'}>
-                                                            {fulfillmentStatus || 'UNFULFILLED'}
+                                                        <Badge tone={displayFulfillmentStatus === 'PARTIALLY_FULFILLED' ? 'info' : 'warning'}>
+                                                            {displayFulfillmentStatus || 'UNFULFILLED'}
                                                         </Badge>
                                                     </InlineStack>
                                                 </ResourceItem>
