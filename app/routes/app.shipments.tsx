@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, useFetcher, useSubmit } from "@remix-run/react";
+import { useLoaderData, useFetcher, useSubmit, useNavigate } from "@remix-run/react";
 import {
     Page,
     Layout,
@@ -340,6 +340,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function Shipments() {
     const { orders, localShipments, suppliers, errors } = useLoaderData<typeof loader>();
     const fetcher = useFetcher();
+    const navigate = useNavigate();
 
     const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
     const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
@@ -347,19 +348,11 @@ export default function Shipments() {
     const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
     const [pieceCount, setPieceCount] = useState<number>(1);
 
+    // Extract order ID from GID for navigation
     const handleOrderClick = (order: any) => {
-        setSelectedOrder(order);
-        setPieceCount(1); // Reset piece count
-        // Reset selection
-        const newSelection: Record<string, boolean> = {};
-        const newQuantities: Record<string, number> = {};
-        order.lineItems.edges.forEach((edge: any) => {
-            newSelection[edge.node.id] = true;
-            newQuantities[edge.node.id] = edge.node.fulfillableQuantity;
-        });
-        setSelectedItems(newSelection);
-        setSelectedQuantities(newQuantities);
-        if (suppliers.length > 0) setSelectedSupplierId(suppliers[0].id);
+        // Extract numeric ID from gid://shopify/Order/12345 format
+        const orderId = order.id.split('/').pop();
+        navigate(`/app/orders/${orderId}`);
     };
 
     const handleCreateShipment = () => {
