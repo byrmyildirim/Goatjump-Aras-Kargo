@@ -98,7 +98,8 @@ export const sendPackageToAras = async (
 
         // If the province is missing, check if the city field might actually be the province.
         if (!cityName || cityName.trim() === '') {
-            const potentialProvince = townName?.toLowerCase().trim();
+            // FIX: Use Turkish locale for correct matching (e.g., İ -> i)
+            const potentialProvince = townName?.toLocaleLowerCase('tr-TR').trim();
             if (potentialProvince && turkishProvinces.has(potentialProvince)) {
                 cityName = townName;
                 townName = getDistrictFromZip(input.shippingAddress.zip) || '';
