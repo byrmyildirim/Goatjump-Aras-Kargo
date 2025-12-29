@@ -11,7 +11,7 @@
     "env": "shopify app env",
     "start": "remix-serve ./build/server/index.js",
     "docker-start": "npm run setup && npm run start",
-    "setup": "npx prisma migrate resolve --rolled-back \"20240530213853_create_session_table\" || true && prisma generate && prisma migrate deploy",
+    "setup": "npx prisma migrate resolve --rolled-back \"20240530213853_create_session_table\" || true && prisma generate && prisma migrate deploy && npx tsx prisma/seed.ts || true",
     "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
     "shopify": "shopify",
     "prisma": "prisma",
@@ -53,6 +53,7 @@
     "eslint-config-prettier": "^10.0.1",
     "prettier": "^3.2.4",
     "typescript": "^5.2.2",
+    "tsx": "^4.7.0",
     "vite": "^6.2.2"
   },
   "workspaces": {

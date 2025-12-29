@@ -63,7 +63,7 @@ model ShipmentItem {
 model Supplier {
   id           String   @id @default(cuid())
   name         String
-  supplierCode String   // MÖK için tedarikçi kodu (G04, G05...)
+  supplierCode String   @unique // MÖK için tedarikçi kodu (G04, G05...)
   arasAddressId String  // Aras Kargo AddressID
   createdAt    DateTime @default(now())
   

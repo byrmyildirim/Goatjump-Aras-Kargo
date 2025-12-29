@@ -83,6 +83,9 @@ CREATE TABLE "ShipmentItem" (
 -- CreateIndex
 CREATE UNIQUE INDEX "Shipment_mok_key" ON "Shipment"("mok");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "Supplier_supplierCode_key" ON "Supplier"("supplierCode");
+
 -- AddForeignKey
 ALTER TABLE "Shipment" ADD CONSTRAINT "Shipment_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "Supplier"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
