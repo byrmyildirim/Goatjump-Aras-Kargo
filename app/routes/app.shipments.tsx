@@ -25,60 +25,71 @@ import { sendPackageToAras, getShipmentStatus } from "../services/arasKargo.serv
 import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-    const { admin } = await authenticate.admin(request);
+    try {
+        const { admin } = await authenticate.admin(request);
 
-    // 1. Get Unfulfilled Orders from Shopify
-    const response = await admin.graphql(
-        `#graphql
-      query getUnfulfilledOrders {
-        orders(first: 50, query: "fulfillment_status:unfulfilled OR fulfillment_status:partial") {
-          edges {
-            node {
-              id
-              name
-              createdAt
-              fulfillmentStatus
-              shippingAddress {
-                firstName
-                lastName
-                address1
-                address2
-                city
-                province
-                zip
-                phone
-              }
-              lineItems(first: 50) {
-                edges {
-                  node {
-                    id
-                    title
-                    sku
-                    quantity
-                    fulfillableQuantity
+        // 1. Get Unfulfilled Orders from Shopify
+        const response = await admin.graphql(
+            `#graphql
+          query getUnfulfilledOrders {
+            orders(first: 50, query: "fulfillment_status:unfulfilled OR fulfillment_status:partial") {
+              edges {
+                node {
+                  id
+                  name
+                  createdAt
+                  fulfillmentStatus
+                  shippingAddress {
+                    firstName
+                    lastName
+                    address1
+                    address2
+                    city
+                    province
+                    zip
+                    phone
+                  }
+                  lineItems(first: 50) {
+                    edges {
+                      node {
+                        id
+                        title
+                        sku
+                        quantity
+                        fulfillableQuantity
+                      }
+                    }
                   }
                 }
               }
             }
-          }
+          }`
+        );
+
+        const responseJson = await response.json();
+
+        if (!responseJson.data || !responseJson.data.orders) {
+            console.error("Shopify GraphQL Error:", JSON.stringify(responseJson));
+            throw new Error("Failed to fetch orders from Shopify");
         }
-      }`
-    );
 
-    const responseJson = await response.json();
-    const orders = responseJson.data.orders.edges.map((edge: any) => edge.node);
+        const orders = responseJson.data.orders.edges.map((edge: any) => edge.node);
 
-    // 2. Get local shipments
-    const localShipments = await prisma.shipment.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 20
-    });
+        // 2. Get local shipments
+        const localShipments = await prisma.shipment.findMany({
+            orderBy: { createdAt: 'desc' },
+            take: 20
+        });
 
-    // 3. Get Settings and Suppliers for the UI
-    const settings = await prisma.arasKargoSettings.findFirst();
-    const suppliers = await prisma.supplier.findMany();
+        // 3. Get Settings and Suppliers for the UI
+        const settings = await prisma.arasKargoSettings.findFirst();
+        const suppliers = await prisma.supplier.findMany();
 
-    return json({ orders, localShipments, settings, suppliers });
+        return json({ orders, localShipments, settings, suppliers });
+    } catch (error) {
+        console.error("Loader Error in app.shipments.tsx:", error);
+        throw error; // Re-throw to show error page, but now logged
+    }
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
