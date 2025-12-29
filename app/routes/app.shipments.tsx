@@ -38,7 +38,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         try {
             const response = await admin.graphql(
                 `#graphql
-                `#graphql
               query getUnfulfilledOrders {
                 orders(first: 50, query: "(fulfillment_status:unfulfilled OR fulfillment_status:partial) AND (financial_status:paid) AND (status:open)") {
                   edges {
@@ -89,7 +88,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                 : (e?.message || String(e));
             console.error("Error fetching orders - Full details:", errorDetails);
             console.error("Error object keys:", Object.keys(e || {}));
-            errors.push(`Siparişler çekilirken hata: ${ e?.message || 'Bilinmeyen hata'}`);
+            errors.push(`Siparişler çekilirken hata: ${e?.message || 'Bilinmeyen hata'}`);
         }
 
         // 2. Get local shipments
@@ -134,7 +133,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const shippingAddressJson = formData.get("shippingAddress") as string;
         const pieceCount = parseInt(formData.get("pieceCount") as string) || 1;
 
-        console.log(`Processing shipment for ${ orderName }, Supplier: ${ supplierId }, Pieces: ${ pieceCount } `);
+        console.log(`Processing shipment for ${orderName}, Supplier: ${supplierId}, Pieces: ${pieceCount} `);
 
         const items = JSON.parse(itemsJson);
         const shippingAddress = JSON.parse(shippingAddressJson);
@@ -224,27 +223,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 { variables: { id: `gid://shopify/Order/${orderId}` } }
             );
 
-const fulfillmentOrdersData = await fulfillmentOrdersResponse.json();
-const fulfillmentOrder = fulfillmentOrdersData.data?.order?.fulfillmentOrders?.edges?.[0]?.node;
+            const fulfillmentOrdersData = await fulfillmentOrdersResponse.json();
+            const fulfillmentOrder = fulfillmentOrdersData.data?.order?.fulfillmentOrders?.edges?.[0]?.node;
 
-if (fulfillmentOrder) {
-    // Map items to fulfillment order line items
-    const fulfillmentOrderLineItems = items.map((item: any) => {
-        const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
-            edge.node.lineItem.id === item.id || edge.node.lineItem.id === `gid://shopify/LineItem/${item.id}`
-        );
-        if (foLineItem) {
-            return {
-                id: foLineItem.node.id,
-                quantity: item.quantity
-            };
-        }
-        return null;
-    }).filter(Boolean);
+            if (fulfillmentOrder) {
+                // Map items to fulfillment order line items
+                const fulfillmentOrderLineItems = items.map((item: any) => {
+                    const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
+                        edge.node.lineItem.id === item.id || edge.node.lineItem.id === `gid://shopify/LineItem/${item.id}`
+                    );
+                    if (foLineItem) {
+                        return {
+                            id: foLineItem.node.id,
+                            quantity: item.quantity
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
 
-    if (fulfillmentOrderLineItems.length > 0) {
-        await admin.graphql(
-            `#graphql
+                if (fulfillmentOrderLineItems.length > 0) {
+                    await admin.graphql(
+                        `#graphql
                         mutation fulfillmentCreate($fulfillment: FulfillmentCreateV2Input!) {
                           fulfillmentCreateV2(fulfillment: $fulfillment) {
                             fulfillment {
@@ -257,85 +256,85 @@ if (fulfillmentOrder) {
                             }
                           }
                         }`,
-            {
-                variables: {
-                    fulfillment: {
-                        lineItemsByFulfillmentOrder: [
-                            {
-                                fulfillmentOrderId: fulfillmentOrder.id,
-                                fulfillmentOrderLineItems: fulfillmentOrderLineItems
+                        {
+                            variables: {
+                                fulfillment: {
+                                    lineItemsByFulfillmentOrder: [
+                                        {
+                                            fulfillmentOrderId: fulfillmentOrder.id,
+                                            fulfillmentOrderLineItems: fulfillmentOrderLineItems
+                                        }
+                                    ],
+                                    notifyCustomer: true
+                                }
                             }
-                        ],
-                        notifyCustomer: true
-                    }
+                        }
+                    );
                 }
             }
-        );
-    }
-}
 
         } catch (fError) {
-    console.error("Shopify Fulfillment Error (Non-blocking):", fError);
-    // We do not return error here to ensure Aras shipment is recorded as success
-}
+            console.error("Shopify Fulfillment Error (Non-blocking):", fError);
+            // We do not return error here to ensure Aras shipment is recorded as success
+        }
 
-return json({ status: "success", message: result.message });
+        return json({ status: "success", message: result.message });
     }
 
-if (intent === "getBarcode") {
-    const shipmentId = formData.get("shipmentId") as string;
-    const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
+    if (intent === "getBarcode") {
+        const shipmentId = formData.get("shipmentId") as string;
+        const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
 
-    if (!shipment || !shipment.mok) {
-        return json({ status: "error", message: "Gönderi bulunamadı." });
+        if (!shipment || !shipment.mok) {
+            return json({ status: "error", message: "Gönderi bulunamadı." });
+        }
+
+        const settings = await prisma.arasKargoSettings.findFirst();
+        if (!settings) {
+            return json({ status: "error", message: "Ayarlar eksik." });
+        }
+
+        // Call getBarcode (imported from service)
+        const result = await getBarcode(shipment.mok, settings);
+
+        if (result.success && result.barcodeBase64) {
+            return json({ status: "success", message: "Barkod alındı", barcodeBase64: result.barcodeBase64 });
+        } else {
+            return json({ status: "error", message: result.message });
+        }
     }
 
-    const settings = await prisma.arasKargoSettings.findFirst();
-    if (!settings) {
-        return json({ status: "error", message: "Ayarlar eksik." });
+    if (intent === "updateStatus") {
+        const shipmentId = formData.get("shipmentId") as string;
+        const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
+
+        if (!shipment || !shipment.mok) {
+            return json({ status: "error", message: "Gönderi veya MÖK bulunamadı." });
+        }
+
+
+        const settings = await prisma.arasKargoSettings.findFirst();
+        if (!settings) {
+            return json({ status: "error", message: "Ayarlar bulunamadı." });
+        }
+
+        const result = await getShipmentStatus(shipment.mok, settings);
+
+        if (result.success && result.trackingNumber) {
+            await prisma.shipment.update({
+                where: { id: shipmentId },
+                data: {
+                    trackingNumber: result.trackingNumber,
+                    status: "IN_TRANSIT"
+                }
+            });
+            return json({ status: "success", message: `Takip no güncellendi: ${result.trackingNumber}` });
+        }
+
+        return json({ status: "error", message: result.message || "Takip bilgisi alınamadı." });
     }
 
-    // Call getBarcode (imported from service)
-    const result = await getBarcode(shipment.mok, settings);
-
-    if (result.success && result.barcodeBase64) {
-        return json({ status: "success", message: "Barkod alındı", barcodeBase64: result.barcodeBase64 });
-    } else {
-        return json({ status: "error", message: result.message });
-    }
-}
-
-if (intent === "updateStatus") {
-    const shipmentId = formData.get("shipmentId") as string;
-    const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
-
-    if (!shipment || !shipment.mok) {
-        return json({ status: "error", message: "Gönderi veya MÖK bulunamadı." });
-    }
-
-
-    const settings = await prisma.arasKargoSettings.findFirst();
-    if (!settings) {
-        return json({ status: "error", message: "Ayarlar bulunamadı." });
-    }
-
-    const result = await getShipmentStatus(shipment.mok, settings);
-
-    if (result.success && result.trackingNumber) {
-        await prisma.shipment.update({
-            where: { id: shipmentId },
-            data: {
-                trackingNumber: result.trackingNumber,
-                status: "IN_TRANSIT"
-            }
-        });
-        return json({ status: "success", message: `Takip no güncellendi: ${result.trackingNumber}` });
-    }
-
-    return json({ status: "error", message: result.message || "Takip bilgisi alınamadı." });
-}
-
-return null;
+    return null;
 };
 
 export default function Shipments() {
