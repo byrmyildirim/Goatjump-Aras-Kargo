@@ -19,6 +19,9 @@ WORKDIR /myapp
 COPY --from=deps /myapp/node_modules /myapp/node_modules
 ADD package.json package-lock.json .npmrc ./
 RUN npm prune --omit=dev
+# Generate Prisma Client for production
+COPY prisma ./prisma
+RUN npx prisma generate
 
 # Build the app
 FROM base as build
