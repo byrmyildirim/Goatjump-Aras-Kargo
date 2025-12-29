@@ -120,6 +120,13 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     );
 
     const data = await response.json();
+
+    if ((data as any).errors) {
+        console.error("GraphQL Errors:", JSON.stringify((data as any).errors, null, 2));
+    }
+
+    console.log("Loader Params OrderID:", orderId);
+
     const order = data.data?.order;
 
     if (!order) {
