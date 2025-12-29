@@ -181,7 +181,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 supplierId: supplier.id,
                 supplierName: supplier.name,
                 addressId: supplier.arasAddressId,
-                pieceCount: 1,
+                pieceCount: pieceCount, // FIX: Use the variable, not hardcoded 1
                 status: "SENT_TO_ARAS",
                 items: {
                     create: items.map((i: any) => ({
@@ -199,100 +199,86 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             // First get the fulfillment order for this order
             const fulfillmentOrdersResponse = await admin.graphql(
                 `#graphql
-                query getFulfillmentOrders($orderId: ID!) {
-                    order(id: $orderId) {
-                        fulfillmentOrders(first: 10) {
+                query getFulfillmentOrder($id: ID!) {
+                  order(id: $id) {
+                    fulfillmentOrders(first: 10) {
+                      edges {
+                        node {
+                          id
+                          lineItems(first: 50) {
                             edges {
-                                node {
-                                    id
-                                    status
-                                    lineItems(first: 50) {
-                                        edges {
-                                            node {
-                                                id
-                                                remainingQuantity
-                                                lineItem {
-                                                    id
-                                                }
-                                            }
-                                        }
-                                    }
+                              node {
+                                id
+                                lineItem {
+                                  id
                                 }
+                              }
                             }
+                          }
                         }
+                      }
                     }
+                  }
                 }`,
-                { variables: { orderId } }
+                { variables: { id: `gid://shopify/Order/${orderId}` } }
             );
 
-            const foData = await fulfillmentOrdersResponse.json();
-            const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges || [];
+            const fulfillmentOrdersData = await fulfillmentOrdersResponse.json();
+            const fulfillmentOrder = fulfillmentOrdersData.data?.order?.fulfillmentOrders?.edges?.[0]?.node;
 
-            // Find an "open" fulfillment order
-            const openFO = fulfillmentOrders.find((fo: any) =>
-                ['OPEN', 'IN_PROGRESS'].includes(fo.node.status)
-            );
+            if (fulfillmentOrder) {
+                // Map items to fulfillment order line items
+                const fulfillmentOrderLineItems = items.map((item: any) => {
+                    const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
+                        edge.node.lineItem.id === item.id || edge.node.lineItem.id === `gid://shopify/LineItem/${item.id}`
+                    );
+                    if (foLineItem) {
+                        return {
+                            id: foLineItem.node.id,
+                            quantity: item.quantity
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
 
-            if (openFO) {
-                // Map our items to fulfillment order line items
-                const foLineItems = openFO.node.lineItems.edges;
-                const fulfillmentLineItems = items
-                    .map((item: any) => {
-                        const match = foLineItems.find((foli: any) =>
-                            foli.node.lineItem.id === item.id
-                        );
-                        if (match && match.node.remainingQuantity > 0) {
-                            return {
-                                fulfillmentOrderLineItemId: match.node.id,
-                                quantity: Math.min(item.quantity, match.node.remainingQuantity)
-                            };
-                        }
-                        return null;
-                    })
-                    .filter(Boolean);
-
-                if (fulfillmentLineItems.length > 0) {
-                    // Create the fulfillment
+                if (fulfillmentOrderLineItems.length > 0) {
                     await admin.graphql(
                         `#graphql
-                        mutation fulfillmentCreateV2($fulfillment: FulfillmentV2Input!) {
-                            fulfillmentCreateV2(fulfillment: $fulfillment) {
-                                fulfillment {
-                                    id
-                                    status
-                                }
-                                userErrors {
-                                    field
-                                    message
-                                }
+                        mutation fulfillmentCreate($fulfillment: FulfillmentCreateV2Input!) {
+                          fulfillmentCreateV2(fulfillment: $fulfillment) {
+                            fulfillment {
+                              id
+                              status
                             }
+                            userErrors {
+                              field
+                              message
+                            }
+                          }
                         }`,
                         {
                             variables: {
                                 fulfillment: {
-                                    lineItemsByFulfillmentOrder: [{
-                                        fulfillmentOrderId: openFO.node.id,
-                                        fulfillmentOrderLineItems: fulfillmentLineItems
-                                    }],
-                                    notifyCustomer: false,
-                                    trackingInfo: {
-                                        company: "Aras Kargo",
-                                        number: result.mok || "",
-                                        url: `https://kargotakip.araskargo.com.tr/mainpage.aspx?code=${result.mok}`
-                                    }
+                                    lineItemsByFulfillmentOrder: [
+                                        {
+                                            fulfillmentOrderId: fulfillmentOrder.id,
+                                            fulfillmentOrderLineItems: fulfillmentOrderLineItems
+                                        }
+                                    ],
+                                    notifyCustomer: true
                                 }
                             }
                         }
                     );
-                    console.log("Shopify fulfillment created for partial shipment");
                 }
             }
-        } catch (fulfillmentError) {
-            console.error("Error creating Shopify fulfillment (non-blocking):", fulfillmentError);
-            // Don't fail the whole operation if fulfillment creation fails
+
+        } catch (fError) {
+            console.error("Shopify Fulfillment Error (Non-blocking):", fError);
+            // We do not return error here to ensure Aras shipment is recorded as success
         }
 
-        return json({ status: "success", message: `Kargo gönderildi! MÖK: ${result.mok}` });
+        return json({ status: "success", message: result.message });
     }
 
     if (intent === "getBarcode") {
@@ -421,18 +407,20 @@ export default function Shipments() {
         setSelectedOrder(null); // Close modal
     };
 
-    // Handle barcode response
+    // Handle barcode response and general messages
     useEffect(() => {
         const data = fetcher.data as any;
-        if (data?.barcodeBase64) {
-            // Create a link to download or view
-            const link = document.createElement('a');
-            link.href = `data:application/pdf;base64,${fetcher.data.barcodeBase64}`; // Assuming PDF, might be image
-            link.download = `barcode_${Date.now()}.pdf`; // Should adjust extension based on format
-            // If it's ZPL it needs a viewer, but let's assume PDF from Aras.
-            // Let's assume user wants to download it.
+        if (!data) return;
 
-            // Actually, better UX:
+        if (data.status === 'error') {
+            shopify.toast.show(data.message, { isError: true });
+        } else if (data.status === 'success') {
+            // If message exists, show it. Even if it's barcode, we can show "Received".
+            if (data.message) shopify.toast.show(data.message);
+        }
+
+        if (data.barcodeBase64) {
+            // Create a link to download or view
             const win = window.open();
             if (win) {
                 const isPdf = data.barcodeBase64.startsWith('JVBERi0');
