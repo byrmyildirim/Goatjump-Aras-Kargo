@@ -344,6 +344,10 @@ export default function OrderDetail() {
         items: { title: string; quantity: number }[];
     } | null>(null);
 
+    // Address editing state
+    const [isEditingAddress, setIsEditingAddress] = useState(false);
+    const [editedAddress, setEditedAddress] = useState<any>(null);
+
     // Initialize selections
     useEffect(() => {
         const lineItems = order.lineItems.edges.map((e: any) => e.node);
@@ -357,6 +361,11 @@ export default function OrderDetail() {
         setSelectedQuantities(newQuantities);
         if (suppliers.length > 0) {
             setSelectedSupplierId(suppliers[0].id);
+        }
+
+        // Initialize edited address
+        if (order.shippingAddress) {
+            setEditedAddress(order.shippingAddress);
         }
     }, [order, suppliers]);
 
@@ -432,7 +441,8 @@ export default function OrderDetail() {
         formData.append("orderName", order.name);
         formData.append("supplierId", selectedSupplierId);
         formData.append("items", JSON.stringify(itemsToShip));
-        formData.append("shippingAddress", JSON.stringify(order.shippingAddress));
+        // Use edited address if available, otherwise original
+        formData.append("shippingAddress", JSON.stringify(editedAddress || order.shippingAddress));
         formData.append("pieceCount", pieceCount.toString());
 
         fetcher.submit(formData, { method: "POST" });
@@ -664,30 +674,98 @@ export default function OrderDetail() {
                             </BlockStack>
                         </Card>
 
+
                         {/* Shipping Address */}
                         <Card>
                             <BlockStack gap="300">
-                                <Text as="h2" variant="headingMd">Teslimat Adresi</Text>
+                                <InlineStack align="space-between">
+                                    <Text as="h2" variant="headingMd">Teslimat Adresi</Text>
+                                    <Button
+                                        variant="plain"
+                                        onClick={() => setIsEditingAddress(!isEditingAddress)}
+                                    >
+                                        {isEditingAddress ? 'İptal' : 'Düzenle'}
+                                    </Button>
+                                </InlineStack>
                                 <Divider />
-                                {shippingAddress ? (
-                                    <BlockStack gap="100">
-                                        <Text as="p" fontWeight="semibold">
-                                            {shippingAddress.firstName} {shippingAddress.lastName}
-                                        </Text>
-                                        <Text as="p" variant="bodySm">{shippingAddress.address1}</Text>
-                                        {shippingAddress.address2 && (
-                                            <Text as="p" variant="bodySm">{shippingAddress.address2}</Text>
-                                        )}
-                                        <Text as="p" variant="bodySm">
-                                            {shippingAddress.zip} {shippingAddress.city}
-                                        </Text>
-                                        <Text as="p" variant="bodySm">{shippingAddress.province}</Text>
-                                        <Text as="p" variant="bodySm">{shippingAddress.phone}</Text>
+
+                                {isEditingAddress && editedAddress ? (
+                                    <BlockStack gap="300">
+                                        <InlineStack gap="300">
+                                            <TextField
+                                                label="Ad"
+                                                value={editedAddress.firstName}
+                                                onChange={(val) => setEditedAddress({ ...editedAddress, firstName: val })}
+                                                autoComplete="off"
+                                            />
+                                            <TextField
+                                                label="Soyad"
+                                                value={editedAddress.lastName}
+                                                onChange={(val) => setEditedAddress({ ...editedAddress, lastName: val })}
+                                                autoComplete="off"
+                                            />
+                                        </InlineStack>
+                                        <TextField
+                                            label="Telefon"
+                                            value={editedAddress.phone}
+                                            onChange={(val) => setEditedAddress({ ...editedAddress, phone: val })}
+                                            autoComplete="off"
+                                        />
+                                        <TextField
+                                            label="Adres 1"
+                                            value={editedAddress.address1}
+                                            onChange={(val) => setEditedAddress({ ...editedAddress, address1: val })}
+                                            autoComplete="off"
+                                        />
+                                        <TextField
+                                            label="Adres 2"
+                                            value={editedAddress.address2 || ''}
+                                            onChange={(val) => setEditedAddress({ ...editedAddress, address2: val })}
+                                            autoComplete="off"
+                                        />
+                                        <InlineStack gap="300">
+                                            <TextField
+                                                label="Şehir (İlçe)"
+                                                value={editedAddress.city}
+                                                onChange={(val) => setEditedAddress({ ...editedAddress, city: val })}
+                                                autoComplete="off"
+                                            />
+                                            <TextField
+                                                label="İl"
+                                                value={editedAddress.province}
+                                                onChange={(val) => setEditedAddress({ ...editedAddress, province: val })}
+                                                autoComplete="off"
+                                            />
+                                        </InlineStack>
+                                        <TextField
+                                            label="Posta Kodu"
+                                            value={editedAddress.zip}
+                                            onChange={(val) => setEditedAddress({ ...editedAddress, zip: val })}
+                                            autoComplete="off"
+                                        />
+                                        <Button variant="primary" onClick={() => setIsEditingAddress(false)}>Kaydet</Button>
                                     </BlockStack>
                                 ) : (
-                                    <Banner tone="warning">
-                                        <p>Teslimat adresi bulunamadı!</p>
-                                    </Banner>
+                                    editedAddress ? (
+                                        <BlockStack gap="100">
+                                            <Text as="p" fontWeight="semibold">
+                                                {editedAddress.firstName} {editedAddress.lastName}
+                                            </Text>
+                                            <Text as="p" variant="bodySm">{editedAddress.address1}</Text>
+                                            {editedAddress.address2 && (
+                                                <Text as="p" variant="bodySm">{editedAddress.address2}</Text>
+                                            )}
+                                            <Text as="p" variant="bodySm">
+                                                {editedAddress.zip} {editedAddress.city}
+                                            </Text>
+                                            <Text as="p" variant="bodySm">{editedAddress.province}</Text>
+                                            <Text as="p" variant="bodySm">{editedAddress.phone}</Text>
+                                        </BlockStack>
+                                    ) : (
+                                        <Banner tone="warning">
+                                            <p>Teslimat adresi bulunamadı!</p>
+                                        </Banner>
+                                    )
                                 )}
                             </BlockStack>
                         </Card>

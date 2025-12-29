@@ -106,6 +106,14 @@ export const sendPackageToAras = async (
             }
         }
 
+        // If district is still missing but we have a zip code, try to find it
+        if ((!townName || townName.trim() === '') && input.shippingAddress.zip) {
+            const districtFromZip = getDistrictFromZip(input.shippingAddress.zip);
+            if (districtFromZip) {
+                townName = districtFromZip;
+            }
+        }
+
         // Final check
         if (!cityName || cityName.trim() === '') {
             // Fallback: try to guess from zip if completely empty, or default to Istanbul if desperate (not recommended but avoids 0 error sometimes)
