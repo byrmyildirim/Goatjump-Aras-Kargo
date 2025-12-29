@@ -125,20 +125,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const intent = formData.get("intent");
 
     if (intent === "createShipment") {
+        console.log("Action received: createShipment");
         const orderId = formData.get("orderId") as string;
         const orderName = formData.get("orderName") as string;
         const supplierId = formData.get("supplierId") as string;
         const itemsJson = formData.get("items") as string; // JSON string of items to ship
         const shippingAddressJson = formData.get("shippingAddress") as string;
+        const pieceCount = parseInt(formData.get("pieceCount") as string) || 1;
+
+        console.log(`Processing shipment for ${orderName}, Supplier: ${supplierId}, Pieces: ${pieceCount}`);
 
         const items = JSON.parse(itemsJson);
         const shippingAddress = JSON.parse(shippingAddressJson);
-        const pieceCount = parseInt(formData.get("pieceCount") as string) || 1;
 
         const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
         const settings = await prisma.arasKargoSettings.findFirst();
 
         if (!supplier || !settings) {
+            console.error("Supplier or Settings not found");
             return json({ status: "error", message: "Tedarikçi veya Ayarlar bulunamadı." });
         }
 
@@ -373,7 +377,16 @@ export default function Shipments() {
     };
 
     const handleCreateShipment = () => {
-        if (!selectedOrder || !selectedSupplierId) return;
+        console.log("Handle Create Shipment Triggered");
+        if (!selectedOrder) {
+            console.log("No selected order");
+            return;
+        }
+        if (!selectedSupplierId) {
+            console.log("No selected supplier");
+            shopify.toast.show("Lütfen bir tedarikçi seçin");
+            return;
+        }
 
         // Filter items
         const itemsToShip = selectedOrder.lineItems.edges
@@ -386,7 +399,10 @@ export default function Shipments() {
                 quantity: selectedQuantities[node.id]
             }));
 
+        console.log("Items to ship:", itemsToShip);
+
         if (itemsToShip.length === 0) {
+            console.log("No items selected");
             shopify.toast.show("Lütfen gönderilecek ürün seçin");
             return;
         }
@@ -400,6 +416,7 @@ export default function Shipments() {
         formData.append("shippingAddress", JSON.stringify(selectedOrder.shippingAddress));
         formData.append("pieceCount", pieceCount.toString());
 
+        console.log("Submitting form data...");
         fetcher.submit(formData, { method: "POST" });
         setSelectedOrder(null); // Close modal
     };
