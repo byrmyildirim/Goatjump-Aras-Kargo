@@ -21,8 +21,8 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { sendPackageToAras, getShipmentStatus } from "../services/arasKargo.server";
-import { useState } from "react";
+import { sendPackageToAras, getShipmentStatus, getBarcode } from "../services/arasKargo.server";
+import { useState, useEffect } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     let orders = [];
@@ -133,6 +133,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
         const items = JSON.parse(itemsJson);
         const shippingAddress = JSON.parse(shippingAddressJson);
+        const pieceCount = parseInt(formData.get("pieceCount") as string) || 1;
 
         const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
         const settings = await prisma.arasKargoSettings.findFirst();
@@ -160,7 +161,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 supplierCode: supplier.supplierCode,
                 arasAddressId: supplier.arasAddressId
             },
-            pieceCount: 1 // Default to 1 box for now, can be enhanced
+            pieceCount: pieceCount
         }, settings);
 
         if (!result.success) {
@@ -290,6 +291,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return json({ status: "success", message: `Kargo gönderildi! MÖK: ${result.mok}` });
     }
 
+    if (intent === "getBarcode") {
+        const shipmentId = formData.get("shipmentId") as string;
+        const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
+
+        if (!shipment || !shipment.mok) {
+            return json({ status: "error", message: "Gönderi bulunamadı." });
+        }
+
+        const settings = await prisma.arasKargoSettings.findFirst();
+        if (!settings) {
+            return json({ status: "error", message: "Ayarlar eksik." });
+        }
+
+        // Call getBarcode (imported from service)
+        const result = await getBarcode(shipment.mok, settings);
+
+        if (result.success && result.barcodeBase64) {
+            return json({ status: "success", message: "Barkod alındı", barcodeBase64: result.barcodeBase64 });
+        } else {
+            return json({ status: "error", message: result.message });
+        }
+    }
+
     if (intent === "updateStatus") {
         const shipmentId = formData.get("shipmentId") as string;
         const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
@@ -297,6 +321,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         if (!shipment || !shipment.mok) {
             return json({ status: "error", message: "Gönderi veya MÖK bulunamadı." });
         }
+
 
         const settings = await prisma.arasKargoSettings.findFirst();
         if (!settings) {
@@ -330,9 +355,11 @@ export default function Shipments() {
     const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
     const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>({});
     const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
+    const [pieceCount, setPieceCount] = useState<number>(1);
 
     const handleOrderClick = (order: any) => {
         setSelectedOrder(order);
+        setPieceCount(1); // Reset piece count
         // Reset selection
         const newSelection: Record<string, boolean> = {};
         const newQuantities: Record<string, number> = {};
@@ -371,10 +398,37 @@ export default function Shipments() {
         formData.append("supplierId", selectedSupplierId);
         formData.append("items", JSON.stringify(itemsToShip));
         formData.append("shippingAddress", JSON.stringify(selectedOrder.shippingAddress));
+        formData.append("pieceCount", pieceCount.toString());
 
         fetcher.submit(formData, { method: "POST" });
         setSelectedOrder(null); // Close modal
     };
+
+    // Handle barcode response
+    useEffect(() => {
+        const data = fetcher.data as any;
+        if (data?.barcodeBase64) {
+            // Create a link to download or view
+            const link = document.createElement('a');
+            link.href = `data:application/pdf;base64,${fetcher.data.barcodeBase64}`; // Assuming PDF, might be image
+            link.download = `barcode_${Date.now()}.pdf`; // Should adjust extension based on format
+            // If it's ZPL it needs a viewer, but let's assume PDF from Aras.
+            // Let's assume user wants to download it.
+
+            // Actually, better UX:
+            const win = window.open();
+            if (win) {
+                const isPdf = data.barcodeBase64.startsWith('JVBERi0');
+                if (isPdf) {
+                    win.document.write(`<iframe src="data:application/pdf;base64,${data.barcodeBase64}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
+                } else {
+                    // Assume Image or Text (ZPL)
+                    win.document.write(`<pre>${atob(data.barcodeBase64)}</pre>`);
+                }
+            }
+        }
+    }, [fetcher.data]);
+
 
     return (
         <Page>
@@ -454,6 +508,18 @@ export default function Shipments() {
                                                         Güncelle
                                                     </Button>
                                                 )}
+                                                <Button
+                                                    size="micro"
+                                                    onClick={() => {
+                                                        const form = new FormData();
+                                                        form.append("intent", "getBarcode");
+                                                        form.append("shipmentId", shipment.id);
+                                                        fetcher.submit(form, { method: "POST" });
+                                                    }}
+                                                    loading={fetcher.state === 'submitting'}
+                                                >
+                                                    Barkod
+                                                </Button>
                                             </InlineStack>
                                         </div>
                                     ))}
@@ -490,6 +556,15 @@ export default function Shipments() {
                                 options={suppliers.map((s: any) => ({ label: s.name, value: s.id }))}
                                 value={selectedSupplierId}
                                 onChange={setSelectedSupplierId}
+                            />
+
+                            <TextField
+                                label="Paket Sayısı (Parça Adedi)"
+                                type="number"
+                                value={String(pieceCount)}
+                                onChange={(val) => setPieceCount(Math.max(1, parseInt(val) || 1))}
+                                autoComplete="off"
+                                helpText="Bu gönderi kaç parça/koli olacak?"
                             />
 
                             <Text as="h3" variant="headingSm">Ürünler</Text>

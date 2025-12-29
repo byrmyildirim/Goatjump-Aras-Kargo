@@ -135,37 +135,34 @@ export const sendPackageToAras = async (
 
         // Correct Piece Detail Logic
         let generatedPiecesXML = '';
-        let currentPiece = 0;
 
-        // If we simply treat every item quantity as a piece?
-        // "The pieceCount is input.pieceCount". 
-        // If input.pieceCount is 1, we just list contents.
-        // If pieceCount > 1, we need to correct barcodes.
+        // Piece count determines the number of labels/boxes
+        // If pieceCount is 1, barcode is just MOK.
+        // If pieceCount > 1, barcodes are MOK-1, MOK-2...
 
-        // Let's just iterate over items and quantities to generate descriptions.
-        // But for BarcodeNumber, we need to respect pieceCount.
+        // Content summary for description
+        const contentSummary = input.items.map(i => `${i.quantity}x ${i.title}`).join(', ').substring(0, 50);
 
-        // Real implementation:
-        let tempIndex = 0;
-        for (const item of input.items) {
-            for (let q = 0; q < item.quantity; q++) {
-                tempIndex++;
-                const pieceBarcode = pieceCount > 1 ? `${mok}-${tempIndex}` : mok;
-                generatedPiecesXML += `
-                  <PieceDetail>
-                      <VolumetricWeight>1</VolumetricWeight>
-                      <Weight>1</Weight>
-                      <BarcodeNumber>${escapeXml(pieceBarcode)}</BarcodeNumber>
-                      <Description>${escapeXml(item.title.substring(0, 50))}</Description>
-                  </PieceDetail>`;
+        for (let i = 1; i <= pieceCount; i++) {
+            // For single piece, standard behavior might be just MOK or MOK-1 depending on configuration.
+            // Aras standard: If standard integration, usually MÖK is enough for single piece.
+            // But for multi-piece, suffix is needed.
+            // Code in similar integrations often uses suffix always or only if >1. 
+            // Let's use logic: if pieceCount > 1, append index.
+
+            let pieceBarcode = mok;
+            if (pieceCount > 1) {
+                pieceBarcode = `${mok}-${i}`;
             }
-        }
 
-        // Override if the loop count doesn't match pieceCount? 
-        // Aras validation might fail if PieceCount != count(PieceDetails)
-        // We will trust the loop generates the correct number of details matching the staged items.
-        // UPDATE input.pieceCount to match the generated details count to be safe.
-        const actualPieceCount = tempIndex;
+            generatedPiecesXML += `
+              <PieceDetail>
+                  <VolumetricWeight>1</VolumetricWeight>
+                  <Weight>1</Weight>
+                  <BarcodeNumber>${escapeXml(pieceBarcode)}</BarcodeNumber>
+                  <Description>${escapeXml(contentSummary)}</Description>
+              </PieceDetail>`;
+        }
 
         const soapRequestXML = `<?xml version="1.0" encoding="utf-8"?>
 <soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
@@ -180,7 +177,7 @@ export const sendPackageToAras = async (
           <ReceiverCityName>${escapedCityName}</ReceiverCityName>
           <ReceiverTownName>${escapedTownName}</ReceiverTownName>
           <SenderAccountAddressId>${escapeXml(input.supplier.arasAddressId)}</SenderAccountAddressId>
-          <PieceCount>${actualPieceCount}</PieceCount>
+          <PieceCount>${pieceCount}</PieceCount>
           <PieceDetails>
             ${generatedPiecesXML}
           </PieceDetails>
@@ -311,5 +308,76 @@ export const getShipmentStatus = async (
     } catch (error) {
         console.error("Aras Kargo Query Error:", error);
         return { success: false, message: error instanceof Error ? error.message : "Sorgulama hatası" };
+    }
+};
+
+export const getBarcode = async (
+    mok: string,
+    settings: ArasKargoSettings
+): Promise<{ success: boolean; barcodeBase64?: string; message: string }> => {
+    if (!settings.queryUsername || !settings.queryPassword) {
+        return { success: false, message: 'Ayarlar eksik.' };
+    }
+
+    // GetBarcodeZpl or GetBarcode (PDF)
+    // Using GetBarcode for ZPL usually preferred for label printers, but PDF is safer for web view.
+    // Let's assume standard GetBarcode which usually returns a link or base64.
+    // Checking standard docs: "GetBarcode" -> Base64 string.
+
+    // Note: This needs to be adjusted based on exact SOAP method available for this user.
+    // Common Aras methods: GetBarcode, GetBarkod (for ZPL), or getting PDF link.
+    // Let's implement generic GetBarcode call.
+
+    const soapRequestXML = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetBarcode xmlns="http://tempuri.org/">
+      <userName>${escapeXml(settings.queryUsername)}</userName>
+      <password>${escapeXml(settings.queryPassword)}</password>
+      <integrationCode>${escapeXml(mok)}</integrationCode>
+    </GetBarcode>
+  </soap:Body>
+</soap:Envelope>`;
+
+    try {
+        const response = await fetch('https://customerws.araskargo.com.tr/arascargoservice.asmx', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'http://tempuri.org/GetBarcode'
+            },
+            body: soapRequestXML
+        });
+
+        const responseText = await response.text();
+        // Since we can't easily parse complex base64 from XML in all envs without huge deps,
+        // we'll use simple string parsing or DOMParser.
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(responseText, "text/xml");
+
+        // Response is usually <GetBarcodeResult><BarcodeBase64>...</BarcodeBase64></GetBarcodeResult>
+        // Or sometimes directly inside Result.
+
+        let base64 = "";
+        const resultNode = xmlDoc.getElementsByTagName("GetBarcodeResult")[0];
+        if (resultNode) {
+            base64 = resultNode.textContent || "";
+        }
+
+        // Some fallback check
+        if (!base64) {
+            const manualNode = xmlDoc.getElementsByTagName("Barcode")[0];
+            if (manualNode) base64 = manualNode.textContent || "";
+        }
+
+        if (base64) {
+            return { success: true, message: "Barkod alındı", barcodeBase64: base64 };
+        } else {
+            return { success: false, message: "Barkod oluşturulamadı veya servisten boş döndü." };
+        }
+
+    } catch (error) {
+        console.error("Barcode Error:", error);
+        return { success: false, message: "Barkod servisi hatası" };
     }
 };
