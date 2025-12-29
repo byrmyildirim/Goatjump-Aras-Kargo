@@ -40,4 +40,4 @@ COPY --from=build /myapp/public /myapp/public
 COPY --from=build /myapp/package.json /myapp/package.json
 COPY --from=build /myapp/prisma /myapp/prisma
 
-CMD ["npm", "start"]
+CMD ["npm", "run", "docker-start"]
