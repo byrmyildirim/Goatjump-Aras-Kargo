@@ -92,16 +92,25 @@ export const sendPackageToAras = async (
 
         const mok = generateMOK(input.orderNumber, input.supplier.supplierCode, maxMokLength);
 
-        // Address Correction
+        // Address Correction Logic
         let cityName = input.shippingAddress.province; // İl
         let townName = input.shippingAddress.city;     // İlçe
 
+        // If the province is missing, check if the city field might actually be the province.
         if (!cityName || cityName.trim() === '') {
             const potentialProvince = townName?.toLowerCase().trim();
             if (potentialProvince && turkishProvinces.has(potentialProvince)) {
                 cityName = townName;
                 townName = getDistrictFromZip(input.shippingAddress.zip) || '';
             }
+        }
+
+        // Final check
+        if (!cityName || cityName.trim() === '') {
+            // Fallback: try to guess from zip if completely empty, or default to Istanbul if desperate (not recommended but avoids 0 error sometimes)
+            // or just fail gently. The old service failed here.
+            // We can return error
+            return { success: false, message: "Kargo gönderimi başarısız: 'İl' (Province) bilgisi eksik." };
         }
 
         const receiverName = escapeXml(`${input.shippingAddress.firstName} ${input.shippingAddress.lastName}`.trim());
@@ -112,44 +121,17 @@ export const sendPackageToAras = async (
         const content = escapeXml(input.items.map(i => i.title).join(', ').substring(0, 255));
         const invoiceNo = escapeXml(input.orderNumber.replace('#', ''));
 
-        let pieceIndex = 0;
-        const pieceDetailsXML = input.items.flatMap(() => {
-            // Simplified piece logic: we just create piece details based on total piece count assumption or input.item count? 
-            // The assumption here is input.items has already aggregated info or we just loop based on quantity?
-            // For simplicity in this port, let's assume input.items correctly reflects what we want to list, 
-            // but we need to match `pieceCount`. 
-            // If items > pieceCount (unlikely if bundled), or item quantity > 1.
-
-            // Let's rebuild the logic from the old service:
-            // helper used item.quantity.
-            // We will iterate and decrement pieceCount? 
-            // Actually the old logic created one XML node per physical piece.
-            // We should do the same.
-            // For this implementation, let's assume the caller handles the 'staged' logic and `items` here means *what is in the box*.
-            // But `pieceCount` is passed explicitly.
-
-            // Re-using the old logic of iterating item quantity:
-            // We need access to the item quantities.
-            return []; // Placeholder, see block below
-        });
-
         // Correct Piece Detail Logic
         let generatedPiecesXML = '';
 
-        // Piece count determines the number of labels/boxes
-        // If pieceCount is 1, barcode is just MOK.
-        // If pieceCount > 1, barcodes are MOK-1, MOK-2...
+        // Piece count logic:
+        // Aras API requires <PieceDetails> entries generally matching <PieceCount>.
+        // We will generate `pieceCount` number of entries.
 
         // Content summary for description
         const contentSummary = input.items.map(i => `${i.quantity}x ${i.title}`).join(', ').substring(0, 50);
 
         for (let i = 1; i <= pieceCount; i++) {
-            // For single piece, standard behavior might be just MOK or MOK-1 depending on configuration.
-            // Aras standard: If standard integration, usually MÖK is enough for single piece.
-            // But for multi-piece, suffix is needed.
-            // Code in similar integrations often uses suffix always or only if >1. 
-            // Let's use logic: if pieceCount > 1, append index.
-
             let pieceBarcode = mok;
             if (pieceCount > 1) {
                 pieceBarcode = `${mok}-${i}`;
