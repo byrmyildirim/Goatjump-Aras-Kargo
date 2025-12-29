@@ -1,3 +1,6 @@
+-- CreateEnum (must be before tables that use it)
+CREATE TYPE "ShipmentStatus" AS ENUM ('PENDING', 'SENT_TO_ARAS', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED');
+
 -- CreateTable
 CREATE TABLE "Session" (
     "id" TEXT NOT NULL,
@@ -19,6 +22,32 @@ CREATE TABLE "Session" (
     "refreshTokenExpires" TIMESTAMP(3),
 
     CONSTRAINT "Session_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Supplier" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "supplierCode" TEXT NOT NULL,
+    "arasAddressId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Supplier_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ArasKargoSettings" (
+    "id" TEXT NOT NULL DEFAULT 'default',
+    "senderUsername" TEXT NOT NULL,
+    "senderPassword" TEXT NOT NULL,
+    "senderCustomerCode" TEXT NOT NULL,
+    "queryUsername" TEXT NOT NULL,
+    "queryPassword" TEXT NOT NULL,
+    "queryCustomerCode" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ArasKargoSettings_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -50,35 +79,6 @@ CREATE TABLE "ShipmentItem" (
 
     CONSTRAINT "ShipmentItem_pkey" PRIMARY KEY ("id")
 );
-
--- CreateTable
-CREATE TABLE "Supplier" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "supplierCode" TEXT NOT NULL,
-    "arasAddressId" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "Supplier_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "ArasKargoSettings" (
-    "id" TEXT NOT NULL DEFAULT 'default',
-    "senderUsername" TEXT NOT NULL,
-    "senderPassword" TEXT NOT NULL,
-    "senderCustomerCode" TEXT NOT NULL,
-    "queryUsername" TEXT NOT NULL,
-    "queryPassword" TEXT NOT NULL,
-    "queryCustomerCode" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "ArasKargoSettings_pkey" PRIMARY KEY ("id")
-);
-
--- CreateEnum
-CREATE TYPE "ShipmentStatus" AS ENUM ('PENDING', 'SENT_TO_ARAS', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED');
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Shipment_mok_key" ON "Shipment"("mok");
