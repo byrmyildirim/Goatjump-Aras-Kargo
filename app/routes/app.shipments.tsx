@@ -81,9 +81,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                 console.error("Shopify GraphQL data missing:", JSON.stringify(responseJson));
                 errors.push("Siparişler çekilemedi (Shopify Hatası)");
             }
-        } catch (e) {
-            console.error("Error fetching orders:", e);
-            errors.push("Siparişler çekilirken hata oluştu.");
+        } catch (e: any) {
+            // Enhanced logging to capture graphQLErrors
+            const errorDetails = e?.graphQLErrors
+                ? JSON.stringify(e.graphQLErrors, null, 2)
+                : (e?.message || String(e));
+            console.error("Error fetching orders - Full details:", errorDetails);
+            console.error("Error object keys:", Object.keys(e || {}));
+            errors.push(`Siparişler çekilirken hata: ${e?.message || 'Bilinmeyen hata'}`);
         }
 
         // 2. Get local shipments
