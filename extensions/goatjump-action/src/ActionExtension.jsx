@@ -32,7 +32,7 @@ function App() {
   // CHANGE THIS TO YOUR PRODUCTION URL
   // During dev, use your tunnel URL (npm run dev output)
   // For production, use your Railway URL
-  const APP_URL = "https://shopify-kargo-app-production.up.railway.app";
+  const APP_URL = "https://goatjump-aras-kargo-production.up.railway.app";
 
   useEffect(() => {
     // data.selected is array of selected items. For order details action, it usually contains the resource ID.
