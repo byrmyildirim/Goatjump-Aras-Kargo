@@ -2,9 +2,9 @@ api_version = "2025-10"
 [[extensions]]
 # Change the merchant-facing name of the extension in locales/en.default.json
 name = "t:name"
-handle = "aras-kargo-action"
+handle = "goatjump-action"
 type = "ui_extension"
-uid = "87f30bc3-40d7-b68b-ef6c-d65932cb28bc5c850262"
+uid = "53a409d2-fd63-4daf-e245-998099d0c85580f29c20"
 
 # Only 1 target can be specified for each Admin action extension
 [[extensions.targeting]]

@@ -2,14 +2,14 @@
 
 client_id = "d6ba1e747d3baccea3c83a2ef77b8394"
 name = "Goatjump Aras Kargo"
-application_url = "https://goatjump-aras-kargo-production.up.railway.app"
+application_url = "https://example.com"
 embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
 
 [webhooks]
-api_version = "2024-10"
+api_version = "2026-01"
 
   [[webhooks.subscriptions]]
   topics = [ "app/scopes_update" ]
@@ -24,4 +24,4 @@ api_version = "2024-10"
 scopes = "read_customers,write_customers,read_products,write_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
 
 [auth]
-redirect_urls = [ "https://goatjump-aras-kargo-production.up.railway.app/auth/callback", "https://goatjump-aras-kargo-production.up.railway.app/auth/shopify/callback", "https://goatjump-aras-kargo-production.up.railway.app/api/auth/callback" ]
+redirect_urls = [ "https://example.com/api/auth" ]
