@@ -231,9 +231,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     }
 
     if (intent === "createFulfillment") {
-        const itemsJson = formData.get("items") as string;
+        const packagesJson = formData.get("packages") as string;
         const orderGid = formData.get("orderGid") as string;
-        const items = JSON.parse(itemsJson);
+        const packages = JSON.parse(packagesJson);
 
         try {
             // Get fulfillment orders
@@ -270,53 +270,79 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                 return json({ status: "error", message: "Fulfillment order bulunamadı." });
             }
 
-            // Map items
-            const fulfillmentOrderLineItems = items.map((item: any) => {
-                const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
-                    edge.node.lineItem.id === item.id || edge.node.lineItem.id === `gid://shopify/LineItem/${item.id}`
-                );
-                if (foLineItem) {
-                    return {
-                        id: foLineItem.node.id,
-                        quantity: item.quantity
-                    };
-                }
-                return null;
-            }).filter(Boolean);
+            let successCount = 0;
+            const errors: string[] = [];
 
-            if (fulfillmentOrderLineItems.length === 0) {
-                return json({ status: "error", message: "Eşleşen ürün bulunamadı." });
+            // Process each package as a separate fulfillment
+            for (const pkg of packages) {
+                // Map items
+                const fulfillmentOrderLineItems = pkg.items.map((item: any) => {
+                    const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
+                        edge.node.lineItem.id === item.id || edge.node.lineItem.id === `gid://shopify/LineItem/${item.id}`
+                    );
+                    if (foLineItem) {
+                        return {
+                            id: foLineItem.node.id,
+                            quantity: item.quantity
+                        };
+                    }
+                    return null;
+                }).filter(Boolean);
+
+                if (fulfillmentOrderLineItems.length === 0) {
+                    errors.push(`Paket ${pkg.id} için eşleşen ürün bulunamadı.`);
+                    continue;
+                }
+
+                // Create fulfillment
+                const response = await admin.graphql(
+                    `#graphql
+                    mutation fulfillmentCreate($fulfillment: FulfillmentCreateV2Input!) {
+                        fulfillmentCreateV2(fulfillment: $fulfillment) {
+                            fulfillment {
+                                id
+                                status
+                            }
+                            userErrors {
+                                field
+                                message
+                            }
+                        }
+                    }`,
+                    {
+                        variables: {
+                            fulfillment: {
+                                lineItemsByFulfillmentOrder: [{
+                                    fulfillmentOrderId: fulfillmentOrder.id,
+                                    fulfillmentOrderLineItems
+                                }],
+                                trackingInfo: {
+                                    company: "Aras Kargo",
+                                    number: pkg.mok,
+                                    url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${pkg.mok}`
+                                },
+                                notifyCustomer: true
+                            }
+                        }
+                    }
+                );
+
+                const result = await response.json();
+                if (result.data?.fulfillmentCreateV2?.userErrors?.length > 0) {
+                    errors.push(`Paket ${pkg.id} hatası: ${result.data.fulfillmentCreateV2.userErrors[0].message}`);
+                } else {
+                    successCount++;
+                }
             }
 
-            // Create fulfillment
-            await admin.graphql(
-                `#graphql
-                mutation fulfillmentCreate($fulfillment: FulfillmentCreateV2Input!) {
-                    fulfillmentCreateV2(fulfillment: $fulfillment) {
-                        fulfillment {
-                            id
-                            status
-                        }
-                        userErrors {
-                            field
-                            message
-                        }
-                    }
-                }`,
-                {
-                    variables: {
-                        fulfillment: {
-                            lineItemsByFulfillmentOrder: [{
-                                fulfillmentOrderId: fulfillmentOrder.id,
-                                fulfillmentOrderLineItems
-                            }],
-                            notifyCustomer: true
-                        }
-                    }
-                }
-            );
+            if (errors.length > 0) {
+                return json({
+                    status: successCount > 0 ? "success" : "error", // Partial success is still success-ish
+                    message: `${successCount} paket gönderildi. Hatalar: ${errors.join(", ")}`
+                });
+            }
 
-            return json({ status: "success", message: "Shopify gönderimi oluşturuldu!" });
+            return json({ status: "success", message: `${successCount} paket başarıyla Shopify'a gönderildi!` });
 
         } catch (error) {
             return json({ status: "error", message: "Fulfillment oluşturulamadı: " + (error as Error).message });
@@ -454,12 +480,10 @@ export default function OrderDetail() {
             return;
         }
 
-        const allItems = stagedPackages.flatMap(pkg => pkg.items);
-
         const formData = new FormData();
         formData.append("intent", "createFulfillment");
         formData.append("orderGid", order.id);
-        formData.append("items", JSON.stringify(allItems));
+        formData.append("packages", JSON.stringify(stagedPackages));
 
         fetcher.submit(formData, { method: "POST" });
     };
