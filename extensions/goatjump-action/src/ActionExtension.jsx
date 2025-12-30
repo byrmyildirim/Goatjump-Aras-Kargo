@@ -6,41 +6,34 @@ import {
   Button,
   Text,
   Box,
-  Banner,
 } from '@shopify/ui-extensions-react/admin';
-import { useState, useEffect } from 'react';
 
 const TARGET = 'admin.order-details.action.render';
 
 export default reactExtension(TARGET, () => <App />);
 
 function App() {
-  const { data } = useApi(TARGET);
-  const [orderName, setOrderName] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const api = useApi(TARGET);
 
-  useEffect(() => {
-    // Get order info from extension data
-    if (data?.selected?.[0]?.id) {
-      const gid = data.selected[0].id;
-      setOrderName(gid);
+  // Sipariş ID'sini al
+  const orderId = api.data?.selected?.[0]?.id?.split('/').pop() || '';
+
+  const handleOpenApp = () => {
+    // Uygulama sipariş sayfasını yeni sekmede aç
+    const url = `https://goatjump-aras-kargo-production.up.railway.app/app/orders/${orderId}`;
+
+    // Admin extension'larda window.open çalışmayabilir, alternatif olarak close ve mesaj
+    try {
+      window.open(url, '_blank');
+    } catch (e) {
+      console.log('Redirect URL:', url);
     }
-  }, [data]);
-
-  const handleAction = () => {
-    setLoading(true);
-    // Sipariş detay sayfasına yönlendir
-    const orderId = orderName.split('/').pop();
-    window.open(`https://goatjump-aras-kargo-production.up.railway.app/app/orders/${orderId}`, '_blank');
-    setLoading(false);
-    setMessage('Kargo sayfası yeni sekmede açıldı');
   };
 
   return (
     <AdminAction
       primaryAction={
-        <Button onPress={handleAction} disabled={loading}>
+        <Button onPress={handleOpenApp}>
           Kargo Sayfasını Aç
         </Button>
       }
@@ -48,15 +41,13 @@ function App() {
       <BlockStack>
         <Text>Aras Kargo işlemleri için uygulama sayfasına yönlendirileceksiniz.</Text>
 
-        {orderName && (
+        {orderId ? (
           <Box paddingBlockStart="base">
-            <Text>Sipariş: {orderName.split('/').pop()}</Text>
+            <Text>Sipariş No: #{orderId}</Text>
           </Box>
-        )}
-
-        {message && (
+        ) : (
           <Box paddingBlockStart="base">
-            <Banner tone="success">{message}</Banner>
+            <Text>Sipariş bilgisi yükleniyor...</Text>
           </Box>
         )}
       </BlockStack>
