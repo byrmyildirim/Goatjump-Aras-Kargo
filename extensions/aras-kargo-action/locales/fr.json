@@ -1,4 +1,3 @@
 {
-  "name": "aras-kargo-action",
-  "welcome": "Bienvenue dans l'extension {{target}}!"
+  "name": "Aras Kargo Gönderimi"
 }
