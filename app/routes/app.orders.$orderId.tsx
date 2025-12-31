@@ -290,7 +290,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                 }).filter(Boolean);
 
                 if (fulfillmentOrderLineItems.length === 0) {
-                    errors.push(`Paket ${pkg.id} için eşleşen ürün bulunamadı.`);
+                    errors.push(`Paket ${pkg.mok} için eşleşen ürün bulunamadı.`);
                     continue;
                 }
 
@@ -419,15 +419,20 @@ export default function OrderDetail() {
                 });
                 setShowLabelModal(true);
 
-                // Add to staged packages
+                // Add to staged packages - IMPORTANT: Keep original Shopify LineItem IDs for fulfillment matching
+                const itemsWithOriginalIds = order.lineItems.edges
+                    .map((e: any) => e.node)
+                    .filter((node: any) => selectedItems[node.id] && selectedQuantities[node.id] > 0)
+                    .map((node: any) => ({
+                        id: node.id,  // Keep original Shopify LineItem ID!
+                        title: node.title,
+                        sku: node.sku || "",
+                        quantity: selectedQuantities[node.id]
+                    }));
+
                 setStagedPackages(prev => [...prev, {
                     supplier: data.supplier,
-                    items: items.map((i: any, idx: number) => ({
-                        id: `staged-${idx}`,
-                        title: i.title,
-                        sku: "",
-                        quantity: i.quantity
-                    })),
+                    items: itemsWithOriginalIds,
                     mok: data.mok,
                     pieceCount
                 }]);
