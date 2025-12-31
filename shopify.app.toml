@@ -21,11 +21,7 @@ api_version = "2026-01"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_assigned_fulfillment_orders,write_assigned_fulfillment_orders,read_custom_fulfillment_services,write_custom_fulfillment_services,read_customers,write_customers,read_fulfillment_constraint_rules,write_fulfillment_constraint_rules,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_orders,write_orders,read_products,write_products,read_third_party_fulfillment_orders,write_third_party_fulfillment_orders"
+scopes = "read_customers,write_customers,read_products,write_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
 
 [auth]
-redirect_urls = [
-    "https://goatjump-aras-kargo-production.up.railway.app/auth/callback",
-    "https://goatjump-aras-kargo-production.up.railway.app/auth/shopify/callback",
-    "https://goatjump-aras-kargo-production.up.railway.app/api/auth/callback"
-]
+redirect_urls = [ "https://example.com/api/auth" ]
