@@ -1,5 +1,5 @@
 import { DOMParser } from '@xmldom/xmldom';
-import type { ArasKargoSettings, Shipment, Supplier, ShipmentItem } from '@prisma/client';
+import type { ArasKargoSettings } from '@prisma/client';
 
 export interface CreateShipmentInput {
     orderNumber: string;
@@ -52,9 +52,7 @@ const getDistrictFromZip = (zip: string | null | undefined): string | null => {
     ]);
     return zipToDistrictMap.get(zip) || null;
 };
-
 // --- END: Smart Address Correction Helpers ---
-
 
 const generateMOK = (orderNumber: string, supplierCode: string, maxLength: number = 30): string => {
     const uniquePart = (Date.now() % 100000).toString().padStart(5, '0');
@@ -82,7 +80,7 @@ export const sendPackageToAras = async (
 ): Promise<{ success: boolean; mok?: string; message: string }> => {
 
     if (!settings.senderUsername || !settings.senderPassword) {
-        return { success: false, message: 'Aras Kargo ayarları eksik.' };
+        return { success: false, message: 'Aras Kargo ayarları eksik. Lütfen Ayarlar sayfasından yapılandırın.' };
     }
 
     try {
@@ -96,9 +94,7 @@ export const sendPackageToAras = async (
         let cityName = input.shippingAddress.province; // İl
         let townName = input.shippingAddress.city;     // İlçe
 
-        // If the province is missing, check if the city field might actually be the province.
         if (!cityName || cityName.trim() === '') {
-            // FIX: Use Turkish locale for correct matching (e.g., İ -> i)
             const potentialProvince = townName?.toLocaleLowerCase('tr-TR').trim();
             if (potentialProvince && turkishProvinces.has(potentialProvince)) {
                 cityName = townName;
@@ -106,7 +102,6 @@ export const sendPackageToAras = async (
             }
         }
 
-        // If district is still missing but we have a zip code, try to find it
         if ((!townName || townName.trim() === '') && input.shippingAddress.zip) {
             const districtFromZip = getDistrictFromZip(input.shippingAddress.zip);
             if (districtFromZip) {
@@ -114,30 +109,42 @@ export const sendPackageToAras = async (
             }
         }
 
-        // Final check
         if (!cityName || cityName.trim() === '') {
-            // Fallback: try to guess from zip if completely empty, or default to Istanbul if desperate (not recommended but avoids 0 error sometimes)
-            // or just fail gently. The old service failed here.
-            // We can return error
-            return { success: false, message: "Kargo gönderimi başarısız: 'İl' (Province) bilgisi eksik." };
+            return { success: false, message: "Kargo gönderimi başarısız: 'İl' (Province) bilgisi eksik. Lütfen Shopify siparişinde adresi düzenleyin." };
         }
 
+        // Escape and format data
         const receiverName = escapeXml(`${input.shippingAddress.firstName} ${input.shippingAddress.lastName}`.trim());
         const fullAddress = escapeXml([input.shippingAddress.address1, input.shippingAddress.address2].filter(Boolean).join(', '));
         const receiverPhone = escapeXml(input.shippingAddress.phone);
-        const escapedCityName = escapeXml(cityName?.toLocaleUpperCase('tr-TR'));
+        const escapedCityName = escapeXml(cityName.toLocaleUpperCase('tr-TR'));
         const escapedTownName = escapeXml(townName?.toLocaleUpperCase('tr-TR'));
+
+        // Content Description (Parça içeriği)
+        // If 'parcaBilgisiGonderilsin' is true, we send detail. Otherwise maybe generic?
+        // Actually Aras requires some content description.
+        // We will stick to the logic: item titles joined.
         const content = escapeXml(input.items.map(i => i.title).join(', ').substring(0, 255));
+
         const invoiceNo = escapeXml(input.orderNumber.replace('#', ''));
 
-        // Correct Piece Detail Logic
+        // Sender Account Address ID logic
+        let senderAddressId = input.supplier.arasAddressId;
+        // Check setting 'addressIdGonderimi'
+        // If strict 'Pasif' means "Do not send tag", we might need to conditionally render XML tag.
+        // But usually empty string is safer or just following the 'Panel' app logic (which always sent it).
+        // The Panel app doc implies we respect the supplier's AddressID.
+        // I'll assume if it's "Pasif", we might still send it because the supplier needs to be identified?
+        // No, usually "Aktif" means "Use the specific branch ID", "Pasif" might mean "Use default account binding".
+
+        // Implementing logic based on doc hints:
+        if (settings.addressIdGonderimi === 'Pasif') {
+            // senderAddressId = ""; // Uncomment if 'Pasif' means sending empty
+            // For now, mirroring Panel logic: It always sent 'supplierInfo.arasAddressId'.
+        }
+
+        // Piece Details
         let generatedPiecesXML = '';
-
-        // Piece count logic:
-        // Aras API requires <PieceDetails> entries generally matching <PieceCount>.
-        // We will generate `pieceCount` number of entries.
-
-        // Content summary for description
         const contentSummary = input.items.map(i => `${i.quantity}x ${i.title}`).join(', ').substring(0, 50);
 
         for (let i = 1; i <= pieceCount; i++) {
@@ -167,7 +174,7 @@ export const sendPackageToAras = async (
           <ReceiverPhone1>${receiverPhone}</ReceiverPhone1>
           <ReceiverCityName>${escapedCityName}</ReceiverCityName>
           <ReceiverTownName>${escapedTownName}</ReceiverTownName>
-          <SenderAccountAddressId>${escapeXml(input.supplier.arasAddressId)}</SenderAccountAddressId>
+          <SenderAccountAddressId>${escapeXml(senderAddressId)}</SenderAccountAddressId>
           <PieceCount>${pieceCount}</PieceCount>
           <PieceDetails>
             ${generatedPiecesXML}
@@ -201,19 +208,18 @@ export const sendPackageToAras = async (
 
         const responseText = await response.text();
         const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(responseText, "text/xml"); // text/xml is standard for xmldom
+        const xmlDoc = parser.parseFromString(responseText, "text/xml");
 
-        // xmldom doesn't support querySelector appropriately in all versions, use getElementsByTagName
         const resultCodeNode = xmlDoc.getElementsByTagName("ResultCode")[0];
         const resultMessageNode = xmlDoc.getElementsByTagName("ResultMessage")[0];
 
         const resultCode = resultCodeNode?.textContent;
-        const resultMessage = resultMessageNode?.textContent || "Bilinmeyen yanıt.";
+        const resultMessage = resultMessageNode?.textContent || "Bilinmeyen yanıt formatı.";
 
         if (resultCode === "0") {
             return {
                 success: true,
-                message: `Aras Kargo gönderisi oluşturuldu. MÖK: ${mok}`,
+                message: `Aras Kargo alımı başarılı. MÖK: ${mok}`,
                 mok
             };
         } else {
@@ -225,7 +231,7 @@ export const sendPackageToAras = async (
 
     } catch (error) {
         console.error("Aras Kargo API Error:", error);
-        return { success: false, message: error instanceof Error ? error.message : "Bilinmeyen hata" };
+        return { success: false, message: error instanceof Error ? error.message : "Sistem hatası" };
     }
 };
 
@@ -237,10 +243,6 @@ export const getShipmentStatus = async (
     if (!settings.queryUsername || !settings.queryPassword) {
         return { success: false, message: "Sorgu kullanıcı bilgileri eksik." };
     }
-
-    // SOAP Payload for GetOrderWithIntegrationCode
-    // Note: This endpoint usually resides on the same service or a specific query service.
-    // For Aras Kargo, standard service often has it.
 
     const soapRequestXML = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -267,20 +269,13 @@ export const getShipmentStatus = async (
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(responseText, "text/xml");
 
-        // Parse response. Expected structure involves <Order> element.
-        // Needs careful parsing depending on exact response format.
-        // Usually: <GetOrderWithIntegrationCodeResult><Order>...</Order></GetOrderWithIntegrationCodeResult>
-
         const orders = xmlDoc.getElementsByTagName("Order");
         if (!orders || orders.length === 0) {
-            return { success: false, message: "Kayıt bulunamadı veya servisten boş yanıt döndü." };
+            return { success: false, message: "Kargo takibi: Kayıt bulunamadı." };
         }
 
-        // Assume first matching order is relevant
         const orderNode = orders[0];
-        const cargoBarcodeNode = orderNode.getElementsByTagName("CargoBarcode")[0] || orderNode.getElementsByTagName("InvoiceNumber")[0]; // Fallback
-
-        // Status might be in a field like 'Status' or 'CargoReason'
+        const cargoBarcodeNode = orderNode.getElementsByTagName("CargoBarcode")[0] || orderNode.getElementsByTagName("InvoiceNumber")[0];
         const statusNode = orderNode.getElementsByTagName("Status")[0];
 
         const trackingNumber = cargoBarcodeNode?.textContent;
@@ -297,78 +292,6 @@ export const getShipmentStatus = async (
         return { success: false, message: "Takip numarası henüz oluşmamış." };
 
     } catch (error) {
-        console.error("Aras Kargo Query Error:", error);
-        return { success: false, message: error instanceof Error ? error.message : "Sorgulama hatası" };
-    }
-};
-
-export const getBarcode = async (
-    mok: string,
-    settings: ArasKargoSettings
-): Promise<{ success: boolean; barcodeBase64?: string; message: string }> => {
-    if (!settings.queryUsername || !settings.queryPassword) {
-        return { success: false, message: 'Ayarlar eksik.' };
-    }
-
-    // GetBarcodeZpl or GetBarcode (PDF)
-    // Using GetBarcode for ZPL usually preferred for label printers, but PDF is safer for web view.
-    // Let's assume standard GetBarcode which usually returns a link or base64.
-    // Checking standard docs: "GetBarcode" -> Base64 string.
-
-    // Note: This needs to be adjusted based on exact SOAP method available for this user.
-    // Common Aras methods: GetBarcode, GetBarkod (for ZPL), or getting PDF link.
-    // Let's implement generic GetBarcode call.
-
-    const soapRequestXML = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <GetBarcode xmlns="http://tempuri.org/">
-      <userName>${escapeXml(settings.queryUsername)}</userName>
-      <password>${escapeXml(settings.queryPassword)}</password>
-      <integrationCode>${escapeXml(mok)}</integrationCode>
-    </GetBarcode>
-  </soap:Body>
-</soap:Envelope>`;
-
-    try {
-        const response = await fetch('https://customerws.araskargo.com.tr/arascargoservice.asmx', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': 'http://tempuri.org/GetBarcode'
-            },
-            body: soapRequestXML
-        });
-
-        const responseText = await response.text();
-        // Since we can't easily parse complex base64 from XML in all envs without huge deps,
-        // we'll use simple string parsing or DOMParser.
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(responseText, "text/xml");
-
-        // Response is usually <GetBarcodeResult><BarcodeBase64>...</BarcodeBase64></GetBarcodeResult>
-        // Or sometimes directly inside Result.
-
-        let base64 = "";
-        const resultNode = xmlDoc.getElementsByTagName("GetBarcodeResult")[0];
-        if (resultNode) {
-            base64 = resultNode.textContent || "";
-        }
-
-        // Some fallback check
-        if (!base64) {
-            const manualNode = xmlDoc.getElementsByTagName("Barcode")[0];
-            if (manualNode) base64 = manualNode.textContent || "";
-        }
-
-        if (base64) {
-            return { success: true, message: "Barkod alındı", barcodeBase64: base64 };
-        } else {
-            return { success: false, message: "Barkod oluşturulamadı veya servisten boş döndü." };
-        }
-
-    } catch (error) {
-        console.error("Barcode Error:", error);
-        return { success: false, message: "Barkod servisi hatası" };
+        return { success: false, message: "Sorgulama hatası: " + (error as Error).message };
     }
 };

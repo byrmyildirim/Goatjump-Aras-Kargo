@@ -78,6 +78,21 @@ model ArasKargoSettings {
   queryUsername      String
   queryPassword      String
   queryCustomerCode  String
+  
+  // Advanced Settings
+  addressIdGonderimi      String  @default("Aktif") // "Aktif" | "Pasif"
+  parcaBilgisiGonderilsin Boolean @default(true)
+  barkodCiktiTuru         String  @default("Standart")
+  yaziciKagitGenisligi    Int     @default(100)
+  yaziciKagitYuksekligi   Int     @default(100)
+  yazdirmaYogunlugu       String  @default("8 dpmm (203 dpi)")
+  
+  // Return Settings
+  addressId               String? // Varsayılan Şube ID
+  configurationId         String?
+  iadeKoduGecerlilikSuresi Int    @default(7)
+  iadeBilgilendirmeMetni   String?
+
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }
