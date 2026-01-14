@@ -295,3 +295,60 @@ export const getShipmentStatus = async (
         return { success: false, message: "Sorgulama hatası: " + (error as Error).message };
     }
 };
+
+export const getBarcode = async (
+    mok: string,
+    settings: ArasKargoSettings
+): Promise<{ success: boolean; barcodeBase64?: string; message: string }> => {
+    if (!settings.queryUsername || !settings.queryPassword) {
+        return { success: false, message: 'Ayarlar eksik.' };
+    }
+
+    const soapRequestXML = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetBarcode xmlns="http://tempuri.org/">
+      <userName>${escapeXml(settings.queryUsername)}</userName>
+      <password>${escapeXml(settings.queryPassword)}</password>
+      <integrationCode>${escapeXml(mok)}</integrationCode>
+    </GetBarcode>
+  </soap:Body>
+</soap:Envelope>`;
+
+    try {
+        const response = await fetch('https://customerws.araskargo.com.tr/arascargoservice.asmx', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'http://tempuri.org/GetBarcode'
+            },
+            body: soapRequestXML
+        });
+
+        const responseText = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(responseText, "text/xml");
+
+        let base64 = "";
+        const resultNode = xmlDoc.getElementsByTagName("GetBarcodeResult")[0];
+        if (resultNode) {
+            base64 = resultNode.textContent || "";
+        }
+
+        // Some fallback check
+        if (!base64) {
+            const manualNode = xmlDoc.getElementsByTagName("Barcode")[0];
+            if (manualNode) base64 = manualNode.textContent || "";
+        }
+
+        if (base64) {
+            return { success: true, message: "Barkod alındı", barcodeBase64: base64 };
+        } else {
+            return { success: false, message: "Barkod oluşturulamadı veya servisten boş döndü." };
+        }
+
+    } catch (error) {
+        console.error("Barcode Error:", error);
+        return { success: false, message: "Barkod servisi hatası" };
+    }
+};
