@@ -259,12 +259,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                         {
                             variables: {
                                 fulfillment: {
-                                    lineItemsByFulfillmentOrder: [
-                                        {
-                                            fulfillmentOrderId: fulfillmentOrder.id,
-                                            fulfillmentOrderLineItems: fulfillmentOrderLineItems
-                                        }
-                                    ],
+                                    lineItemsByFulfillmentOrder: [{
+                                        fulfillmentOrderId: fulfillmentOrder.id,
+                                        fulfillmentOrderLineItems: fulfillmentOrderLineItems
+                                    }],
                                     notifyCustomer: true
                                 }
                             }

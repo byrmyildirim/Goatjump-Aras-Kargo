@@ -362,11 +362,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                                     fulfillmentOrderId: fulfillmentOrder.id,
                                     fulfillmentOrderLineItems
                                 }],
-                                trackingInfo: {
-                                    company: "Aras Kargo",
-                                    number: pkg.mok,
-                                    url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${pkg.mok}`
-                                },
                                 notifyCustomer: true
                             }
                         }
