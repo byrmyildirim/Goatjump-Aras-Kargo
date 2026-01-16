@@ -21,11 +21,10 @@ export default function ActionExtension() {
     const [status, setStatus] = useState<{ type: 'success' | 'critical', message: string } | null>(null);
     const [orderDetails, setOrderDetails] = useState<any>(null);
 
-    // 1. Fetch Init Data (Suppliers & Order Details)
+    // 1. Fetch Init Data
     useEffect(() => {
         async function init() {
             try {
-                // Fetch Suppliers from our backend
                 const appUrl = "https://goatjump-aras-kargo-production.up.railway.app";
                 const res = await fetch(`${appUrl}/api/aras`);
                 const json = await res.json();
@@ -34,7 +33,6 @@ export default function ActionExtension() {
                     if (json.suppliers.length > 0) setSelectedSupplier(json.suppliers[0].id);
                 }
 
-                // Fetch Order Details via GraphQL (Admin API)
                 const query = `query getOrder($id: ID!) {
                 order(id: $id) {
                     id
@@ -126,7 +124,7 @@ export default function ActionExtension() {
     return (
         <AdminAction
             primaryAction={
-                <Button onPress={handleSubmit} loading={loading} disabled={!selectedSupplier}>
+                <Button onPress={handleSubmit} disabled={!selectedSupplier || loading}>
                     Kargola
                 </Button>
             }
@@ -137,7 +135,7 @@ export default function ActionExtension() {
             <BlockStack gap="base">
                 {status && <Banner tone={status.type}>{status.message}</Banner>}
 
-                <Text fontWeight="bold" size="large">{orderDetails.name} - Kargo Hazırla</Text>
+                <Text fontWeight="bold">{orderDetails.name} - Kargo Hazırla</Text>
 
                 <Select
                     label="Tedarikçi (Çıkış Adresi)"
@@ -148,15 +146,15 @@ export default function ActionExtension() {
 
                 <TextField
                     label="Paket Sayısı (Adet)"
-                    type="number"
                     value={pieceCount}
                     onChange={setPieceCount}
+                    autoComplete="off"
                 />
 
                 <Text>Ürünler ({orderDetails.lineItems.edges.length} kalem):</Text>
-                <BlockStack gap="extraTight">
+                <BlockStack gap="none">
                     {orderDetails.lineItems.edges.map((edge: any) => (
-                        <Text key={edge.node.id} tone="subdued">
+                        <Text key={edge.node.id}>
                             {edge.node.quantity}x {edge.node.title}
                         </Text>
                     ))}
