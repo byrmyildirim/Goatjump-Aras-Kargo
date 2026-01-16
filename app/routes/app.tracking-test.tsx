@@ -17,6 +17,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { getShipmentStatus } from "../services/arasKargo.server";
+import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     await authenticate.admin(request);
@@ -49,6 +50,7 @@ export default function TrackingTest() {
     const actionData = useActionData<typeof action>() as any;
     const nav = useNavigation();
     const isLoading = nav.state === "submitting";
+    const [mokValue, setMokValue] = useState("");
 
     return (
         <Page>
@@ -69,11 +71,13 @@ export default function TrackingTest() {
                                     <TextField
                                         label="MÖK (Entegrasyon Kodu)"
                                         name="mok"
+                                        value={mokValue}
+                                        onChange={(val) => setMokValue(val)}
                                         autoComplete="off"
                                         placeholder="Örn: G01-1024"
                                     />
 
-                                    <Button submit variant="primary" loading={isLoading}>
+                                    <Button submit variant="primary" loading={isLoading} disabled={!mokValue}>
                                         Sorgula
                                     </Button>
                                 </FormLayout>

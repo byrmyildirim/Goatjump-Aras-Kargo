@@ -1,0 +1,19 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "bcc987046c52d3638aec99ed3e712090"
+name = "Goatjump Kargo Uygulaması"
+application_url = "https://example.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2026-04"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_customers,read_fulfillments,read_merchant_managed_fulfillment_orders,read_orders,read_products,write_customers,write_fulfillments,write_merchant_managed_fulfillment_orders,write_orders,write_products"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
