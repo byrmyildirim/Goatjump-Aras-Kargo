@@ -244,7 +244,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 if (fulfillmentOrderLineItems.length > 0) {
                     await admin.graphql(
                         `#graphql
-                        mutation fulfillmentCreate($fulfillment: FulfillmentCreateV2Input!) {
+                        mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
                           fulfillmentCreateV2(fulfillment: $fulfillment) {
                             fulfillment {
                               id

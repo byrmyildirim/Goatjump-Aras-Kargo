@@ -169,6 +169,52 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
             return json({ status: "error", message: "Tedarikçi veya Ayarlar bulunamadı." });
         }
 
+        // 1. Update Shopify Address (Persistence)
+        try {
+            const updateResponse = await admin.graphql(
+                `#graphql
+                mutation orderUpdate($input: OrderInput!) {
+                    orderUpdate(input: $input) {
+                        order {
+                            id
+                            shippingAddress {
+                                province
+                                city
+                            }
+                        }
+                        userErrors {
+                            field
+                            message
+                        }
+                    }
+                }`,
+                {
+                    variables: {
+                        input: {
+                            id: `gid://shopify/Order/${orderId}`,
+                            shippingAddress: {
+                                firstName: shippingAddress.firstName,
+                                lastName: shippingAddress.lastName,
+                                address1: shippingAddress.address1,
+                                address2: shippingAddress.address2,
+                                city: shippingAddress.city,
+                                province: shippingAddress.province,
+                                zip: shippingAddress.zip,
+                                phone: shippingAddress.phone
+                            }
+                        }
+                    }
+                }
+            );
+            const updateResult = await updateResponse.json();
+            if (updateResult.data?.orderUpdate?.userErrors?.length > 0) {
+                console.error("Address Update Error:", updateResult.data.orderUpdate.userErrors);
+                // We continue even if update fails, but warn?
+            }
+        } catch (err) {
+            console.error("Failed to update Shopify address:", err);
+        }
+
         // Call Aras Kargo API
         const result = await sendPackageToAras({
             orderNumber: orderName,
@@ -297,7 +343,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                 // Create fulfillment
                 const response = await admin.graphql(
                     `#graphql
-                    mutation fulfillmentCreate($fulfillment: FulfillmentCreateV2Input!) {
+                    mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
                         fulfillmentCreateV2(fulfillment: $fulfillment) {
                             fulfillment {
                                 id
