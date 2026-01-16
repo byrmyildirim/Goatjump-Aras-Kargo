@@ -396,6 +396,131 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         }
     }
 
+    if (intent === "checkStatus") {
+        const shipmentId = formData.get("shipmentId") as string;
+        const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
+        const settings = await prisma.arasKargoSettings.findFirst();
+
+        if (!shipment || !settings) {
+            return json({ status: "error", message: "Kayıt bulunamadı." });
+        }
+
+        try {
+            const statusResult = await getShipmentStatus(shipment.mok, settings);
+
+            if (!statusResult.success) {
+                return json({ status: "error", message: statusResult.message });
+            }
+
+            if (statusResult.trackingNumber) {
+                // 1. Update DB
+                await prisma.shipment.update({
+                    where: { id: shipment.id },
+                    data: {
+                        trackingNumber: statusResult.trackingNumber,
+                        status: "IN_TRANSIT"
+                    }
+                });
+
+                // 2. Create Fulfillment in Shopify if not already fulfilled
+                // We need to find the fulfillment order first.
+                // This logic mirrors createFulfillment but for a single shipment.
+                const foResponse = await admin.graphql(
+                    `#graphql
+                    query getFulfillmentOrder($id: ID!) {
+                        order(id: $id) {
+                            fulfillmentOrders(first: 10) {
+                                edges {
+                                    node {
+                                        id
+                                        status
+                                        lineItems(first: 50) {
+                                            edges {
+                                                node {
+                                                    id
+                                                    lineItem {
+                                                        id
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }`,
+                    { variables: { id: `gid://shopify/Order/${orderId}` } }
+                );
+
+                const foData = await foResponse.json();
+                const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
+                const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
+                    fo.status === 'OPEN' || fo.status === 'IN_PROGRESS' || fo.status === 'SCHEDULED'
+                );
+
+                if (fulfillmentOrder) {
+                    // Match items
+                    const dbItems = await prisma.shipmentItem.findMany({ where: { shipmentId: shipment.id } });
+
+                    const fulfillmentOrderLineItems = dbItems.map((item) => {
+                        const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
+                            edge.node.lineItem.id === item.lineItemId || edge.node.lineItem.id === `gid://shopify/LineItem/${item.lineItemId}`
+                        );
+                        if (foLineItem) {
+                            return {
+                                id: foLineItem.node.id,
+                                quantity: item.quantity
+                            };
+                        }
+                        return null;
+                    }).filter(Boolean);
+
+                    if (fulfillmentOrderLineItems.length > 0) {
+                        const fulfillResponse = await admin.graphql(
+                            `#graphql
+                            mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
+                                fulfillmentCreateV2(fulfillment: $fulfillment) {
+                                    fulfillment {
+                                        id
+                                        status
+                                    }
+                                    userErrors {
+                                        field
+                                        message
+                                    }
+                                }
+                            }`,
+                            {
+                                variables: {
+                                    fulfillment: {
+                                        lineItemsByFulfillmentOrder: [{
+                                            fulfillmentOrderId: fulfillmentOrder.id,
+                                            fulfillmentOrderLineItems
+                                        }],
+                                        trackingInfo: {
+                                            company: "Aras Kargo",
+                                            number: statusResult.trackingNumber,
+                                            url: `https://kargotakip.araskargo.com.tr/mainpage.aspx?code=${statusResult.trackingNumber}`
+                                        },
+                                        notifyCustomer: true
+                                    }
+                                }
+                            }
+                        );
+                        await fulfillResponse.json();
+                    }
+                }
+
+                return json({ status: "success", message: `Takip no güncellendi: ${statusResult.trackingNumber}` });
+            }
+
+            return json({ status: "info", message: `Durum: ${statusResult.status || "Bilinmiyor"}` });
+
+        } catch (error) {
+            return json({ status: "error", message: (error as Error).message });
+        }
+    }
+
     return null;
 };
 
@@ -696,13 +821,53 @@ export default function OrderDetail() {
                             </Card>
                         )}
 
+                        {/* Local Database Shipments (active processing) */}
+                        {localShipments && localShipments.length > 0 && (
+                            <Card>
+                                <BlockStack gap="400">
+                                    <Text as="h2" variant="headingMd">Aras Kargo İşlemleri (DB)</Text>
+                                    <Divider />
+                                    {localShipments.map((shipment: any) => (
+                                        <Box key={shipment.id} padding="300" borderRadius="200" background="bg-surface-secondary">
+                                            <BlockStack gap="200">
+                                                <InlineStack align="space-between" blockAlign="center">
+                                                    <BlockStack gap="100">
+                                                        <Text as="span" fontWeight="bold">MÖK: {shipment.mok}</Text>
+                                                        <Text as="span" variant="bodySm">Durum: {shipment.status}</Text>
+                                                        {shipment.trackingNumber && (
+                                                            <Text as="span" variant="bodySm" tone="success">Takip No: {shipment.trackingNumber}</Text>
+                                                        )}
+                                                    </BlockStack>
+
+                                                    <Button
+                                                        onClick={() => {
+                                                            const formData = new FormData();
+                                                            formData.append("intent", "checkStatus");
+                                                            formData.append("shipmentId", shipment.id);
+                                                            fetcher.submit(formData, { method: "POST" });
+                                                        }}
+                                                        loading={fetcher.state === 'submitting'}
+                                                        variant="plain"
+                                                    >
+                                                        Durum Sorgula
+                                                    </Button>
+                                                </InlineStack>
+                                                <Text as="p" variant="bodySm" tone="subdued">
+                                                    {shipment.items.length} kalem ürün
+                                                </Text>
+                                            </BlockStack>
+                                        </Box>
+                                    ))}
+                                </BlockStack>
+                            </Card>
+                        )}
+
                         {/* Past Fulfillments */}
                         {order.fulfillments && order.fulfillments.length > 0 && (
                             <Card>
                                 <BlockStack gap="400">
-                                    <Text as="h2" variant="headingMd">Geçmiş Gönderiler</Text>
+                                    <Text as="h2" variant="headingMd">Geçmiş Gönderiler (Shopify)</Text>
                                     <Divider />
-
                                     {order.fulfillments.map((f: any, idx: number) => (
                                         <Box key={idx} padding="300" borderRadius="200" background="bg-surface-secondary">
                                             <InlineStack align="space-between" blockAlign="center">
