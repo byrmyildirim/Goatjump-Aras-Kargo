@@ -321,6 +321,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const result = await getShipmentStatus(shipment.mok, settings);
 
         if (result.success && result.trackingNumber) {
+            // 1. Update DB
             await prisma.shipment.update({
                 where: { id: shipmentId },
                 data: {
@@ -328,7 +329,71 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                     status: "IN_TRANSIT"
                 }
             });
-            return json({ status: "success", message: `Takip no güncellendi: ${result.trackingNumber}` });
+
+            // 2. Update Shopify Fulfillment
+            try {
+                // We need to find the fulfillment ID associated with this MOK strictly
+                // Or try to find it via order ID if we have it easily. Shipment table has orderId.
+                const fulfillmentQuery = await admin.graphql(
+                    `#graphql
+                    query getFulfillmentId($id: ID!) {
+                        order(id: $id) {
+                            fulfillments {
+                                id
+                                status
+                                trackingInfo {
+                                    number
+                                    company
+                                }
+                            }
+                        }
+                    }`,
+                    { variables: { id: `gid://shopify/Order/${shipment.orderId}` } }
+                );
+
+                const fData = await fulfillmentQuery.json();
+                const fulfillments = fData.data?.order?.fulfillments || [];
+
+                // Find the fulfillment that has the MOK as tracking number
+                const targetFulfillment = fulfillments.find((f: any) =>
+                    f.trackingInfo?.some((t: any) => t.number === shipment.mok)
+                );
+
+                if (targetFulfillment) {
+                    await admin.graphql(
+                        `#graphql
+                        mutation fulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInfoInput!) {
+                            fulfillmentTrackingInfoUpdateV2(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput) {
+                                fulfillment {
+                                    id
+                                    status
+                                    trackingInfo {
+                                        number
+                                    }
+                                }
+                                userErrors {
+                                    field
+                                    message
+                                }
+                            }
+                        }`,
+                        {
+                            variables: {
+                                fulfillmentId: targetFulfillment.id,
+                                trackingInfoInput: {
+                                    company: "Aras Kargo",
+                                    number: result.trackingNumber,
+                                    url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${result.trackingNumber}`
+                                }
+                            }
+                        }
+                    );
+                }
+            } catch (err) {
+                console.error("Shopify Sync Error:", err);
+            }
+
+            return json({ status: "success", message: `Takip no güncellendi ve Shopify'a işlendi: ${result.trackingNumber}` });
         }
 
         return json({ status: "error", message: result.message || "Takip bilgisi alınamadı." });
