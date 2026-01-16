@@ -1,0 +1,17 @@
+api_version = "2025-01"
+
+[[extensions]]
+
+uid = "aec02587-7fb4-b4ca-7232-97916648f1c40df259f4"
+
+type = "ui_extension"
+name = "aras-action"
+handle = "aras-action"
+description = "Aras Kargo İşlemleri"
+
+[[extensions.targeting]]
+target = "admin.order-details.action.render"
+module = "./src/ActionExtension.tsx"
+
+[extensions.capabilities]
+block_progress = true
