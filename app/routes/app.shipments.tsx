@@ -205,6 +205,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                       edges {
                         node {
                             id
+                            status
                             lineItems(first: 50) {
                             edges {
                               node {
@@ -224,7 +225,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             );
 
             const fulfillmentOrdersData = await fulfillmentOrdersResponse.json();
-            const fulfillmentOrder = fulfillmentOrdersData.data?.order?.fulfillmentOrders?.edges?.[0]?.node;
+            const fulfillmentOrders = fulfillmentOrdersData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
+
+            // Find the first OPEN or IN_PROGRESS fulfillment order
+            const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
+                fo.status === 'OPEN' || fo.status === 'IN_PROGRESS' || fo.status === 'SCHEDULED'
+            );
 
             if (fulfillmentOrder) {
                 // Map items to fulfillment order line items

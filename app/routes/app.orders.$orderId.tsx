@@ -291,6 +291,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                             edges {
                                 node {
                                     id
+                                    status
                                     lineItems(first: 50) {
                                         edges {
                                             node {
@@ -310,10 +311,15 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
             );
 
             const foData = await foResponse.json();
-            const fulfillmentOrder = foData.data?.order?.fulfillmentOrders?.edges?.[0]?.node;
+            const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
+
+            // Find the first OPEN or IN_PROGRESS fulfillment order
+            const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
+                fo.status === 'OPEN' || fo.status === 'IN_PROGRESS' || fo.status === 'SCHEDULED'
+            );
 
             if (!fulfillmentOrder) {
-                return json({ status: "error", message: "Fulfillment order bulunamadı." });
+                return json({ status: "error", message: "İşlenebilir (Açık) Fulfillment Order bulunamadı." });
             }
 
             let successCount = 0;
@@ -370,7 +376,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
                 const result = await response.json();
                 if (result.data?.fulfillmentCreateV2?.userErrors?.length > 0) {
-                    errors.push(`Paket ${pkg.id} hatası: ${result.data.fulfillmentCreateV2.userErrors[0].message}`);
+                    errors.push(`Paket ${pkg.mok} hatası: ${result.data.fulfillmentCreateV2.userErrors[0].message}`);
                 } else {
                     successCount++;
                 }
