@@ -5,18 +5,20 @@ import {
     Page,
     Layout,
     Card,
+    ResourceList,
+    ResourceItem,
     Text,
     Badge,
     Button,
     BlockStack,
     InlineStack,
-    TextField,
-    Select,
-    Checkbox,
-    Banner,
-    Divider,
     Box,
-    DataTable,
+    TextField,
+    Divider,
+    Banner,
+    Modal,
+    Select,
+    Checkbox
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -274,6 +276,45 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                 arasAddressId: supplier.arasAddressId
             }
         });
+    }
+
+    if (intent === "manualMok") {
+        const supplierId = formData.get("supplierId") as string;
+        const mok = formData.get("mok") as string;
+        const pieceCount = parseInt(formData.get("pieceCount") as string) || 1;
+        const itemsJson = formData.get("items") as string;
+        const orderName = formData.get("orderName") as string;
+        const items = JSON.parse(itemsJson);
+
+        const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
+
+        if (!supplier || !mok) {
+            return json({ status: "error", message: "Tedarikçi veya MÖK eksik." });
+        }
+
+        // Save Shipment to DB
+        await prisma.shipment.create({
+            data: {
+                orderId: orderId!,
+                orderNumber: orderName,
+                mok: mok,
+                supplierId: supplier.id,
+                supplierName: supplier.name,
+                addressId: supplier.arasAddressId,
+                pieceCount,
+                status: "SENT_TO_ARAS", // Assume sent since we have MOK
+                items: {
+                    create: items.map((i: any) => ({
+                        lineItemId: i.id,
+                        sku: i.sku || "",
+                        title: i.title,
+                        quantity: i.quantity
+                    }))
+                }
+            }
+        });
+
+        return json({ status: "success", message: `Manuel MÖK kaydedildi: ${mok}` });
     }
 
     if (intent === "createFulfillment") {
@@ -618,6 +659,9 @@ export default function OrderDetail() {
         }
     }, [fetcher.data]);
 
+    const [showManualMokModal, setShowManualMokModal] = useState(false);
+    const [manualMok, setManualMok] = useState("");
+
     const handleStagePackage = () => {
         if (!selectedSupplierId) {
             alert("Lütfen bir tedarikçi seçin");
@@ -649,6 +693,40 @@ export default function OrderDetail() {
         formData.append("pieceCount", pieceCount.toString());
 
         fetcher.submit(formData, { method: "POST" });
+    };
+
+    const handleManualMokSubmit = () => {
+        if (!selectedSupplierId || !manualMok) {
+            alert("Lütfen bir tedarikçi ve MÖK kodu girin");
+            return;
+        }
+
+        const itemsToShip = order.lineItems.edges
+            .map((e: any) => e.node)
+            .filter((node: any) => selectedItems[node.id] && selectedQuantities[node.id] > 0)
+            .map((node: any) => ({
+                id: node.id,
+                title: node.title,
+                sku: node.sku,
+                quantity: selectedQuantities[node.id]
+            }));
+
+        if (itemsToShip.length === 0) {
+            alert("Lütfen en az bir ürün seçin");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("intent", "manualMok");
+        formData.append("orderName", order.name);
+        formData.append("supplierId", selectedSupplierId);
+        formData.append("mok", manualMok);
+        formData.append("items", JSON.stringify(itemsToShip));
+        formData.append("pieceCount", pieceCount.toString());
+
+        fetcher.submit(formData, { method: "POST" });
+        setShowManualMokModal(false);
+        setManualMok("");
     };
 
     const handleCreateFulfillment = () => {
@@ -781,6 +859,12 @@ export default function OrderDetail() {
                                         loading={fetcher.state === 'submitting'}
                                     >
                                         Paketi Hazırla
+                                    </Button>
+                                    <Button
+                                        variant="plain"
+                                        onClick={() => setShowManualMokModal(true)}
+                                    >
+                                        Manuel MÖK ile Ekle
                                     </Button>
                                 </InlineStack>
                             </BlockStack>
@@ -1032,6 +1116,49 @@ export default function OrderDetail() {
                     </BlockStack>
                 </Layout.Section>
             </Layout>
+
+            {/* Manual MOK Modal */}
+            <Modal
+                open={showManualMokModal}
+                onClose={() => setShowManualMokModal(false)}
+                title="Manuel MÖK ile Ekle"
+                primaryAction={{
+                    content: 'Kaydet',
+                    onAction: handleManualMokSubmit,
+                }}
+                secondaryActions={[{
+                    content: 'İptal',
+                    onAction: () => setShowManualMokModal(false),
+                }]}
+            >
+                <Modal.Section>
+                    <BlockStack gap="400">
+                        <Text as="p">
+                            Mevcut bir MÖK (Entegrasyon Kodu) girerek kaydı oluşturun. Takip numarası daha sonra otomatik veya toplu sorgulama ile güncellenecektir.
+                        </Text>
+                        <Select
+                            label="Tedarikçi"
+                            options={suppliers.map((s: any) => ({ label: s.name, value: s.id }))}
+                            value={selectedSupplierId}
+                            onChange={setSelectedSupplierId}
+                        />
+                        <TextField
+                            label="MÖK (Entegrasyon Kodu)"
+                            value={manualMok}
+                            onChange={setManualMok}
+                            autoComplete="off"
+                        />
+                        <TextField
+                            label="Paket Sayısı"
+                            type="number"
+                            value={String(pieceCount)}
+                            onChange={(val) => setPieceCount(Math.max(1, parseInt(val) || 1))}
+                            autoComplete="off"
+                            min={1}
+                        />
+                    </BlockStack>
+                </Modal.Section>
+            </Modal>
 
             {/* Shipping Label Modal */}
             {showLabelModal && currentLabelData && (

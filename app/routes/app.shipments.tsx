@@ -308,26 +308,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
     }
 
-    if (intent === "updateStatus") {
-        const shipmentId = formData.get("shipmentId") as string;
-        const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
-
-        if (!shipment || !shipment.mok) {
-            return json({ status: "error", message: "Gönderi veya MÖK bulunamadı." });
-        }
-
-
-        const settings = await prisma.arasKargoSettings.findFirst();
-        if (!settings) {
-            return json({ status: "error", message: "Ayarlar bulunamadı." });
-        }
+    // Helper for updating a single shipment
+    const checkAndUpdateShipment = async (shipment: any, settings: any, admin: any) => {
+        if (!shipment.mok) return { success: false, message: "MÖK yok" };
 
         const result = await getShipmentStatus(shipment.mok, settings);
 
         if (result.success && result.trackingNumber) {
             // 1. Update DB
             await prisma.shipment.update({
-                where: { id: shipmentId },
+                where: { id: shipment.id },
                 data: {
                     trackingNumber: result.trackingNumber,
                     status: "IN_TRANSIT"
@@ -336,8 +326,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
             // 2. Update Shopify Fulfillment
             try {
-                // We need to find the fulfillment ID associated with this MOK strictly
-                // Or try to find it via order ID if we have it easily. Shipment table has orderId.
                 const fulfillmentQuery = await admin.graphql(
                     `#graphql
                     query getFulfillmentId($id: ID!) {
@@ -396,11 +384,53 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             } catch (err) {
                 console.error("Shopify Sync Error:", err);
             }
+            return { success: true, trackingNumber: result.trackingNumber };
+        }
+        return { success: false, message: result.message };
+    };
 
-            return json({ status: "success", message: `Takip no güncellendi ve Shopify'a işlendi: ${result.trackingNumber}` });
+    if (intent === "updateStatus") {
+        const shipmentId = formData.get("shipmentId") as string;
+        const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
+        if (!shipment) return json({ status: "error", message: "Gönderi bulunamadı." });
+
+        const settings = await prisma.arasKargoSettings.findFirst();
+        if (!settings) return json({ status: "error", message: "Ayarlar bulunamadı." });
+
+        const result = await checkAndUpdateShipment(shipment, settings, admin);
+
+        if (result.success) {
+            return json({ status: "success", message: `Takip no güncellendi: ${result.trackingNumber}` });
+        } else {
+            return json({ status: "error", message: result.message || "Takip bilgisi alınamadı." });
+        }
+    }
+
+    if (intent === "bulkUpdateStatus") {
+        const settings = await prisma.arasKargoSettings.findFirst();
+        if (!settings) return json({ status: "error", message: "Ayarlar bulunamadı." });
+
+        // Find all shipments that are 'SENT_TO_ARAS' or generally don't have a tracking number yet
+        const pendingShipments = await prisma.shipment.findMany({
+            where: {
+                // status: "SENT_TO_ARAS", // Optionally filter by status
+                trackingNumber: null // Safer check: filter by missing tracking number
+            },
+            take: 20 // Batch size limit
+        });
+
+        if (pendingShipments.length === 0) {
+            return json({ status: "success", message: "Güncellenecek gönderi yok." });
         }
 
-        return json({ status: "error", message: result.message || "Takip bilgisi alınamadı." });
+        let updatedCount = 0;
+        for (const shipment of pendingShipments) {
+            // Sequential to avoid rate limits
+            const result = await checkAndUpdateShipment(shipment, settings, admin);
+            if (result.success) updatedCount++;
+        }
+
+        return json({ status: "success", message: `${updatedCount} adet gönderi güncellendi.` });
     }
 
     return null;
@@ -552,7 +582,20 @@ export default function Shipments() {
                     <Layout.Section variant="oneThird">
                         <Card>
                             <BlockStack gap="200">
-                                <Text as="h2" variant="headingMd">Son Gönderiler</Text>
+                                <InlineStack align="space-between">
+                                    <Text as="h2" variant="headingMd">Son Gönderiler</Text>
+                                    <Button
+                                        size="micro"
+                                        onClick={() => {
+                                            const form = new FormData();
+                                            form.append("intent", "bulkUpdateStatus");
+                                            fetcher.submit(form, { method: "POST" });
+                                        }}
+                                        loading={fetcher.state === 'submitting'}
+                                    >
+                                        Tümünü Güncelle
+                                    </Button>
+                                </InlineStack>
                                 <BlockStack gap="100">
                                     {localShipments.map((shipment: any) => (
                                         <div key={shipment.id} className="border-b py-2">
