@@ -238,7 +238,7 @@ export const sendPackageToAras = async (
 export const getShipmentStatus = async (
     mok: string,
     settings: ArasKargoSettings
-): Promise<{ success: boolean; trackingNumber?: string; status?: string; message?: string }> => {
+): Promise<{ success: boolean; trackingNumber?: string; status?: string; message?: string; rawResponse?: string }> => {
 
     if (!settings.queryUsername || !settings.queryPassword) {
         return { success: false, message: "Sorgu kullanıcı bilgileri eksik." };
@@ -538,16 +538,5 @@ export const getTrackingNumberByQueryService = async (
     }
 };
 
-function escapeXml(unsafe: string): string {
-    if (!unsafe) return "";
-    return unsafe.replace(/[<>&'"]/g, function (c) {
-        switch (c) {
-            case '<': return '&lt;';
-            case '>': return '&gt;';
-            case '&': return '&amp;';
-            case '\'': return '&apos;';
-            case '"': return '&quot;';
-            default: return c;
-        }
-    });
-}
+// function escapeXml removed because it is already defined at line 63
+
