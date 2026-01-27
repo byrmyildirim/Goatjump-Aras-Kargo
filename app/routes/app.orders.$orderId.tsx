@@ -292,119 +292,19 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
             return json({ status: "error", message: "Tedarikçi veya MÖK eksik." });
         }
 
-        // 1. Save Shipment to DB
-        await prisma.shipment.create({
-            data: {
-                orderId: orderId!,
-                orderNumber: orderName,
-                mok: mok,
-                supplierId: supplier.id,
-                supplierName: supplier.name,
-                addressId: supplier.arasAddressId,
-                pieceCount,
-                status: "SENT_TO_ARAS",
-                items: {
-                    create: items.map((i: any) => ({
-                        lineItemId: i.id,
-                        sku: i.sku || "",
-                        title: i.title,
-                        quantity: i.quantity
-                    }))
-                }
+        // Return strictly the data needed for UI staging, no DB/Shopify side effects yet
+        return json({
+            status: "success",
+            message: `Manuel MÖK Hazırlandı: ${mok}`,
+            mok: mok,
+            pieceCount: pieceCount, // Ensure passed back
+            supplier: {
+                id: supplier.id,
+                name: supplier.name,
+                supplierCode: supplier.supplierCode,
+                arasAddressId: supplier.arasAddressId
             }
         });
-
-        // 2. Create Fulfillment in Shopify (Partial Fulfillment)
-        try {
-            // Get fulfillment orders
-            const foResponse = await admin.graphql(
-                `#graphql
-                query getFulfillmentOrder($id: ID!) {
-                    order(id: $id) {
-                        fulfillmentOrders(first: 10) {
-                            edges {
-                                node {
-                                    id
-                                    status
-                                    lineItems(first: 50) {
-                                        edges {
-                                            node {
-                                                id
-                                                lineItem {
-                                                    id
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }`,
-                { variables: { id: `gid://shopify/Order/${orderId}` } }
-            );
-
-            const foData = await foResponse.json();
-            const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
-            const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
-                fo.status === 'OPEN' || fo.status === 'IN_PROGRESS' || fo.status === 'SCHEDULED'
-            );
-
-            if (fulfillmentOrder) {
-                // Map items
-                const fulfillmentOrderLineItems = items.map((item: any) => {
-                    const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
-                        edge.node.lineItem.id === item.id || edge.node.lineItem.id === `gid://shopify/LineItem/${item.id}`
-                    );
-                    if (foLineItem) {
-                        return {
-                            id: foLineItem.node.id,
-                            quantity: item.quantity
-                        };
-                    }
-                    return null;
-                }).filter(Boolean);
-
-                if (fulfillmentOrderLineItems.length > 0) {
-                    await admin.graphql(
-                        `#graphql
-                        mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
-                            fulfillmentCreateV2(fulfillment: $fulfillment) {
-                                fulfillment {
-                                    id
-                                    status
-                                }
-                                userErrors {
-                                    field
-                                    message
-                                }
-                            }
-                        }`,
-                        {
-                            variables: {
-                                fulfillment: {
-                                    lineItemsByFulfillmentOrder: [{
-                                        fulfillmentOrderId: fulfillmentOrder.id,
-                                        fulfillmentOrderLineItems
-                                    }],
-                                    trackingInfo: {
-                                        company: "Aras Kargo",
-                                        number: mok, // Use the proper MOK
-                                        url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${mok}`
-                                    },
-                                    notifyCustomer: true
-                                }
-                            }
-                        }
-                    );
-                }
-            }
-        } catch (error) {
-            console.error("Manual MOK Fulfillment Error:", error);
-            // We don't fail the whole request, as DB record is created
-        }
-
-        return json({ status: "success", message: `Manuel MÖK kaydedildi ve Shopify'a işlendi: ${mok}` });
     }
 
     if (intent === "createFulfillment") {
@@ -413,11 +313,12 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         const packages = JSON.parse(packagesJson);
 
         try {
-            // Get fulfillment orders
-            const foResponse = await admin.graphql(
+            // Get data needed: Order Name (for DB) and Fulfillment Orders (for Shopify)
+            const queryResponse = await admin.graphql(
                 `#graphql
-                query getFulfillmentOrder($id: ID!) {
+                query getOrderData($id: ID!) {
                     order(id: $id) {
+                        name
                         fulfillmentOrders(first: 10) {
                             edges {
                                 node {
@@ -441,8 +342,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                 { variables: { id: orderGid } }
             );
 
-            const foData = await foResponse.json();
-            const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
+            const queryData = await queryResponse.json();
+            const orderData = queryData.data?.order;
+
+            if (!orderData) throw new Error("Sipariş bulunamadı");
+
+            const orderName = orderData.name;
+            const fulfillmentOrders = orderData.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
 
             // Find the first OPEN or IN_PROGRESS fulfillment order
             const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
@@ -475,6 +381,34 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                 if (fulfillmentOrderLineItems.length === 0) {
                     errors.push(`Paket ${pkg.mok} için eşleşen ürün bulunamadı.`);
                     continue;
+                }
+
+                // Save Shipment to DB
+                try {
+                    await prisma.shipment.create({
+                        data: {
+                            orderId: orderId!,
+                            orderNumber: orderName,
+                            mok: pkg.mok,
+                            supplierId: pkg.supplier.id,
+                            supplierName: pkg.supplier.name,
+                            addressId: pkg.supplier.arasAddressId,
+                            pieceCount: pkg.pieceCount || 1,
+                            status: "SENT_TO_ARAS",
+                            items: {
+                                create: pkg.items.map((i: any) => ({
+                                    lineItemId: i.id,
+                                    sku: i.sku || "",
+                                    title: i.title,
+                                    quantity: i.quantity
+                                }))
+                            }
+                        }
+                    });
+                } catch (dbError) {
+                    console.error("DB Save Error:", dbError);
+                    // Continue to fulfill even if DB fails? Or fail?
+                    // Better to continue to ensure Shopify sync.
                 }
 
                 // Create fulfillment
