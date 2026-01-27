@@ -41,8 +41,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     try {
         if (actionType === 'barcode') {
-            // Use GetArasBarcode - WSDL shows BarcodeModel > TrackingNumber is the correct field
-            const result = await getShipmentBarcode(mok, settings);
+            // Use ArasCargoIntegrationService (GetQueryDS/GetQueryJSON) - from user's PDF documentation
+            const result = await getTrackingNumberByQueryService(mok, settings);
             return json({ success: true, result, type: 'barcode' });
         } else {
             const result = await getShipmentStatus(mok, settings);

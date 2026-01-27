@@ -542,98 +542,128 @@ export const getTrackingNumberByQueryService = async (
         return { success: false, message: 'Ayarlar eksik (Kullanıcı Adı, Şifre veya Müşteri Kodu eksik).' };
     }
 
-    // According to user/docs:
-    // Service: http://customerservices.araskargo.com.tr/ArasCargoCustomerIntegrationService/ArasCargoIntegrationService.svc
-    // Method: GetQueryJSON
-    // Params: loginInfo (string xml/json), queryInfo (string xml/json)
+    // From user's panel screenshot:
+    // Service: https://customerservices.araskargo.com.tr/ArasCargoCustomerIntegrationService/ArasCargoIntegrationService.svc
+    // Method: GetQueryDS (also try GetQueryJSON)
+    // Müşteri Kodu: 2405054550916, Username: goat, Password: 95mnye83w94
 
-    const loginInfoXML = `<LoginInfo>
-<UserName>${settings.queryUsername}</UserName>
-<Password>${settings.queryPassword}</Password>
-<CustomerCode>${settings.queryCustomerCode}</CustomerCode>
-</LoginInfo>`;
+    // WCF services use different SOAP structure with namespaces
+    const url = 'https://customerservices.araskargo.com.tr/ArasCargoCustomerIntegrationService/ArasCargoIntegrationService.svc';
+    const parser = new DOMParser();
 
-    const queryInfoXML = `<QueryInfo>
-<QueryType>100</QueryType>
-<IntegrationCode>${mok}</IntegrationCode>
-</QueryInfo>`;
+    // LoginInfo and QueryInfo as XML strings (will be passed as string parameters to the service)
+    const loginInfo = `<LoginInfo><UserName>${escapeXml(settings.queryUsername)}</UserName><Password>${escapeXml(settings.queryPassword)}</Password><CustomerCode>${escapeXml(settings.queryCustomerCode)}</CustomerCode></LoginInfo>`;
 
-    const soapRequestXML = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+    // QueryType 100 = IntegrationCode query (from user's documentation)
+    const queryInfo = `<QueryInfo><QueryType>100</QueryType><IntegrationCode>${escapeXml(mok)}</IntegrationCode></QueryInfo>`;
+
+    // Try 1: GetQueryDS method
+    const soapGetQueryDS = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
   <soap:Body>
-    <GetQueryJSON xmlns="http://tempuri.org/">
-      <loginInfo>${escapeXml(loginInfoXML)}</loginInfo>
-      <queryInfo>${escapeXml(queryInfoXML)}</queryInfo>
-    </GetQueryJSON>
+    <tem:GetQueryDS>
+      <tem:loginInfo>${escapeXml(loginInfo)}</tem:loginInfo>
+      <tem:queryInfo>${escapeXml(queryInfo)}</tem:queryInfo>
+    </tem:GetQueryDS>
   </soap:Body>
 </soap:Envelope>`;
 
     try {
-        // Fallback to 'customerservices' (Live) or 'customerservicestest' (Test) based on credentials?
-        // Usually safer to allow user to config URL, but here we'll default to Prod as per user's detailed info, 
-        // or try the test URL if fails? 
-        // The user provided:
-        // Test: http://customerservicestest.araskargo.com.tr/ArasCargoIntegrationService.svc
-        // Live: http://customerservices.araskargo.com.tr/ArasCargoCustomerIntegrationService/ArasCargoIntegrationService.svc
-
-        // Let's assume PROD first as most integrations are there, OR maybe check if 'settings.queryUsername' looks like a test user.
-        // For now, I'll use the PROD URL as default, but if it fails (404/500), we might wanna try Test.
-        // Actually, the user's MOK 'TX...' and success in previous screenshots imply they might be testing?
-        // But let's try PROD URL first as that's standard.
-        // WAIT: The user provided screenshot shows "MÖK ile Sorgulama" works (partially), and that was likely hitting the previous .asmx URL.
-        // Let's use the LIVE URL provided by user.
-
-        const url = 'http://customerservices.araskargo.com.tr/ArasCargoCustomerIntegrationService/ArasCargoIntegrationService.svc';
-
-        const response = await fetch(url, {
+        const response1 = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': 'http://tempuri.org/GetQueryJSON'
+                'SOAPAction': 'http://tempuri.org/IArasCargoIntegrationService/GetQueryDS'
             },
-            body: soapRequestXML
+            body: soapGetQueryDS
         });
 
-        const responseText = await response.text();
+        const responseText1 = await response1.text();
 
-        // Parse SOAP response to get the inner JSON string
-        // <GetQueryJSONResult>{ "..." }</GetQueryJSONResult>
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(responseText, "text/xml");
-        const jsonResultString = xmlDoc.getElementsByTagName("GetQueryJSONResult")[0]?.textContent;
+        // Look for tracking-related fields in the DataSet response
+        // GetQueryDS returns a DataSet (XML), not JSON
+        const trackingMatch1 = responseText1.match(/KARGO[_\s]?TAK[İI]P[_\s]?NO[^>]*>([^<]+)</i) ||
+            responseText1.match(/TrackingNumber[^>]*>([^<]+)</i) ||
+            responseText1.match(/TAKIP_NO[^>]*>([^<]+)</i) ||
+            responseText1.match(/<Barcode>([^<]+)</i);
 
-        if (!jsonResultString) {
-            return { success: false, message: "Servisten boş yanıt döndü.", rawResponse: responseText };
+        if (trackingMatch1 && trackingMatch1[1] && trackingMatch1[1] !== mok) {
+            return {
+                success: true,
+                message: "GetQueryDS başarılı",
+                trackingNumber: trackingMatch1[1],
+                rawResponse: responseText1
+            };
         }
 
-        let jsonResult: any;
-        try {
-            jsonResult = JSON.parse(jsonResultString);
-        } catch (e) {
-            return { success: false, message: "JSON parse hatası.", rawResponse: jsonResultString };
-        }
+        // If GetQueryDS didn't return a different tracking number, try GetQueryJSON
+        const soapGetQueryJSON = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
+  <soap:Body>
+    <tem:GetQueryJSON>
+      <tem:loginInfo>${escapeXml(loginInfo)}</tem:loginInfo>
+      <tem:queryInfo>${escapeXml(queryInfo)}</tem:queryInfo>
+    </tem:GetQueryJSON>
+  </soap:Body>
+</soap:Envelope>`;
 
-        // Expected JSON structure from QueryType 100:
-        // Look for "KARGO TAKİP NO" key or similar.
-        // It might be an array of objects.
-        if (Array.isArray(jsonResult)) {
-            const firstItem = jsonResult[0];
-            // Keys might be "KARGO TAKİP NO", "KARGO_TAKIP_NO", "TrackingNumber" etc. User said "KARGO TAKİP NO".
-            // Let's find a key that looks like tracking number.
-            const keys = Object.keys(firstItem);
-            const trackingKey = keys.find(k => k.includes("TAKİP") || k.includes("TAKIP") || k.includes("Tracking"));
+        const response2 = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'http://tempuri.org/IArasCargoIntegrationService/GetQueryJSON'
+            },
+            body: soapGetQueryJSON
+        });
 
-            if (trackingKey && firstItem[trackingKey]) {
-                return {
-                    success: true,
-                    message: "Sorgulama başarılı (IntegrationService)",
-                    trackingNumber: firstItem[trackingKey],
-                    rawResponse: JSON.stringify(jsonResult, null, 2)
-                };
+        const responseText2 = await response2.text();
+        const xmlDoc2 = parser.parseFromString(responseText2, "text/xml");
+        const jsonResultString = xmlDoc2.getElementsByTagName("GetQueryJSONResult")[0]?.textContent;
+
+        if (jsonResultString) {
+            try {
+                const jsonResult = JSON.parse(jsonResultString);
+
+                if (Array.isArray(jsonResult) && jsonResult.length > 0) {
+                    const firstItem = jsonResult[0];
+                    const keys = Object.keys(firstItem);
+
+                    // Look for tracking number field
+                    const trackingKey = keys.find(k =>
+                        k.toUpperCase().includes("TAKİP") ||
+                        k.toUpperCase().includes("TAKIP") ||
+                        k.toUpperCase().includes("TRACKING") ||
+                        k.toUpperCase().includes("KARGO_TAKIP")
+                    );
+
+                    if (trackingKey && firstItem[trackingKey] && firstItem[trackingKey] !== mok) {
+                        return {
+                            success: true,
+                            message: "GetQueryJSON başarılı",
+                            trackingNumber: firstItem[trackingKey],
+                            rawResponse: JSON.stringify(jsonResult, null, 2)
+                        };
+                    }
+
+                    // Return all data for inspection
+                    return {
+                        success: true,
+                        message: "GetQueryJSON - veri döndü (takip no ayrı alanda olabilir)",
+                        trackingNumber: undefined,
+                        rawResponse: `Bulunan alanlar: ${JSON.stringify(firstItem, null, 2)}`
+                    };
+                }
+            } catch (e) {
+                // JSON parse error - continue
             }
         }
 
-        return { success: false, message: "Takip numarası bulunamadı.", rawResponse: JSON.stringify(jsonResult, null, 2) };
+        // Return both responses for debugging
+        return {
+            success: false,
+            message: "Takip numarası bulunamadı (GetQueryDS ve GetQueryJSON denendi)",
+            rawResponse: `--- GetQueryDS Response ---\n${responseText1}\n\n--- GetQueryJSON Response ---\n${responseText2}`
+        };
 
     } catch (error) {
         return { success: false, message: "IntegrationService hatası: " + (error as Error).message };
