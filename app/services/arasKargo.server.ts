@@ -562,8 +562,8 @@ export const getTrackingNumberByQueryService = async (
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
   <soap:Body>
     <tem:GetQueryDS>
-      <tem:loginInfo>${escapeXml(loginInfo)}</tem:loginInfo>
-      <tem:queryInfo>${escapeXml(queryInfo)}</tem:queryInfo>
+      <tem:loginInfo>${loginInfo}</tem:loginInfo>
+      <tem:queryInfo>${queryInfo}</tem:queryInfo>
     </tem:GetQueryDS>
   </soap:Body>
 </soap:Envelope>`;
@@ -601,8 +601,8 @@ export const getTrackingNumberByQueryService = async (
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
   <soap:Body>
     <tem:GetQueryJSON>
-      <tem:loginInfo>${escapeXml(loginInfo)}</tem:loginInfo>
-      <tem:queryInfo>${escapeXml(queryInfo)}</tem:queryInfo>
+      <tem:loginInfo>${loginInfo}</tem:loginInfo>
+      <tem:queryInfo>${queryInfo}</tem:queryInfo>
     </tem:GetQueryJSON>
   </soap:Body>
 </soap:Envelope>`;
