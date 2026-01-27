@@ -471,11 +471,62 @@ export const getShipmentBarcode = async (
             }
         }
 
-        // Last resort: return both responses for debugging
+        // Try 3: GetCargoInfo - requires customerCode + integrationCode, returns IrsaliyeData
+        const getCargoInfoXML = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetCargoInfo xmlns="http://tempuri.org/">
+      <username>${escapeXml(settings.queryUsername)}</username>
+      <password>${escapeXml(settings.queryPassword)}</password>
+      <customerCode>${escapeXml(settings.queryCustomerCode || '')}</customerCode>
+      <integrationCode>${escapeXml(mok)}</integrationCode>
+    </GetCargoInfo>
+  </soap:Body>
+</soap:Envelope>`;
+
+        const response3 = await fetch('https://customerws.araskargo.com.tr/arascargoservice.asmx', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'http://tempuri.org/GetCargoInfo'
+            },
+            body: getCargoInfoXML
+        });
+
+        const responseText3 = await response3.text();
+        const xmlDoc3 = parser.parseFromString(responseText3, "text/xml");
+
+        // GetCargoInfo returns IrsaliyeData - look for any tracking-related fields
+        // Common field names: KARGO_TAKIP_NO, BARCODE, TRACKING_NUMBER, etc.
+        const allElements = responseText3.match(/<([A-Z_]+)>([^<]+)<\/\1>/gi) || [];
+        const trackingCandidates: Record<string, string> = {};
+
+        for (const elem of allElements) {
+            const match = elem.match(/<([A-Z_]+)>([^<]+)<\/\1>/i);
+            if (match) {
+                const [, tag, value] = match;
+                // Look for fields that might contain tracking number
+                if (tag.includes('TAKIP') || tag.includes('BARCODE') || tag.includes('TRACKING') ||
+                    tag.includes('KARGO') || tag.includes('WAYBILL') || tag.includes('SEVK')) {
+                    trackingCandidates[tag] = value;
+                }
+            }
+        }
+
+        if (Object.keys(trackingCandidates).length > 0) {
+            return {
+                success: true,
+                message: "GetCargoInfo - Aday alanlar bulundu",
+                trackingNumber: Object.values(trackingCandidates)[0],
+                rawResponse: `Bulunan alanlar: ${JSON.stringify(trackingCandidates, null, 2)}\n\n--- Ham XML ---\n${responseText3}`
+            };
+        }
+
+        // Last resort: return all three responses for debugging
         return {
             success: false,
-            message: "Takip numarası bulunamadı. (GetLabelDummy ve GetBarcode denendi)",
-            rawResponse: `--- GetLabelDummy Response ---\n${responseText1}\n\n--- GetBarcode Response ---\n${responseText2}`
+            message: "Takip numarası bulunamadı. (GetLabelDummy, GetBarcode ve GetCargoInfo denendi)",
+            rawResponse: `--- GetLabelDummy ---\n${responseText1}\n\n--- GetBarcode ---\n${responseText2}\n\n--- GetCargoInfo ---\n${responseText3}`
         };
 
     } catch (error) {
