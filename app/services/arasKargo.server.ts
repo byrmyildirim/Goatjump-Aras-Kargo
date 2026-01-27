@@ -544,23 +544,75 @@ export const getTrackingNumberByQueryService = async (
 
     const url = 'https://customerservices.araskargo.com.tr/ArasCargoCustomerIntegrationService/ArasCargoIntegrationService.svc';
 
-    // 1. Prepare Inner XML Strings
-    // Note: User/password/code are NOT escaped here because they are inside CDATA in the envelope, 
-    // OR they should be escaped if they contain special chars? CDATA handles most, but standard practice says 
-    // inside CDATA it's just raw text. However, if they contain ']]>' it would break. 
-    // I'll assume standard credentials don't have ']]>'.
-
+    // LoginInfo XML String (Inner XML)
     const loginInfoString = `<LoginInfo><UserName>${settings.queryUsername}</UserName><Password>${settings.queryPassword}</Password><CustomerCode>${settings.queryCustomerCode}</CustomerCode></LoginInfo>`;
-    const queryInfoString = `<QueryInfo><QueryType>100</QueryType><IntegrationCode>${mok}</IntegrationCode></QueryInfo>`;
 
-    // 2. SOAP Envelope with CDATA and correct namespaces (tem:)
-    // Gemini said: "Dikkat: 'tem' prefix'i ve 'loginInfo' (küçük harf) burada çok önemli."
-    const soapEnvelope = `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
+    // ---------------------------------------------------------
+    // ATTEMPT 1: GetQueryDS (XML DataSet) - QueryType 1
+    // Recommended by latest user feedback/Gemini solution
+    // ---------------------------------------------------------
+
+    // Using QueryType 1 for IntegrationCode as per suggested solution
+    const queryInfoStringDS = `<QueryInfo><QueryType>1</QueryType><IntegrationCode>${mok}</IntegrationCode></QueryInfo>`;
+
+    // SOAP Envelope with CDATA and correct namespaces (tem:)
+    const soapEnvelopeDS = `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
+       <soapenv:Header/>
+       <soapenv:Body>
+          <tem:GetQueryDS>
+             <tem:loginInfo><![CDATA[${loginInfoString}]]></tem:loginInfo>
+             <tem:queryInfo><![CDATA[${queryInfoStringDS}]]></tem:queryInfo>
+          </tem:GetQueryDS>
+       </soapenv:Body>
+    </soapenv:Envelope>`;
+
+    try {
+        const responseDS = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'http://tempuri.org/IArasCargoIntegrationService/GetQueryDS'
+            },
+            body: soapEnvelopeDS
+        });
+
+        const responseTextDS = await responseDS.text();
+
+        // Parse Response (Extract Inner XML from GetQueryDSResult)
+        const resultMatch = responseTextDS.match(/<GetQueryDSResult>(.*?)<\/GetQueryDSResult>/s);
+
+        if (resultMatch && resultMatch[1]) {
+            const innerXML = resultMatch[1];
+
+            // Regex for possible tracking number tags in the DataSet XML
+            const trackingMatch = innerXML.match(/<(?:KARGO_TAKIP_NO|TrackingNumber|KargoTakipNo|TakipNo)[^>]*>(.*?)<\//i);
+
+            if (trackingMatch && trackingMatch[1] && trackingMatch[1] !== mok) {
+                return {
+                    success: true,
+                    message: "GetQueryDS başarılı",
+                    trackingNumber: trackingMatch[1],
+                    rawResponse: `--- GetQueryDS Result ---\n${innerXML}`
+                };
+            }
+        }
+
+    } catch (error) {
+        console.error("GetQueryDS failed:", error);
+    }
+
+    // ---------------------------------------------------------
+    // ATTEMPT 2: GetQueryJSON - QueryType 100 (Backup)
+    // ---------------------------------------------------------
+
+    const queryInfoStringJSON = `<QueryInfo><QueryType>100</QueryType><IntegrationCode>${mok}</IntegrationCode></QueryInfo>`;
+
+    const soapEnvelopeJSON = `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
        <soapenv:Header/>
        <soapenv:Body>
           <tem:GetQueryJSON>
              <tem:loginInfo><![CDATA[${loginInfoString}]]></tem:loginInfo>
-             <tem:queryInfo><![CDATA[${queryInfoString}]]></tem:queryInfo>
+             <tem:queryInfo><![CDATA[${queryInfoStringJSON}]]></tem:queryInfo>
           </tem:GetQueryJSON>
        </soapenv:Body>
     </soapenv:Envelope>`;
@@ -572,12 +624,12 @@ export const getTrackingNumberByQueryService = async (
                 'Content-Type': 'text/xml; charset=utf-8',
                 'SOAPAction': 'http://tempuri.org/IArasCargoIntegrationService/GetQueryJSON'
             },
-            body: soapEnvelope
+            body: soapEnvelopeJSON
         });
 
         const responseText = await response.text();
 
-        // 3. Parse Response
+        // Parse Response
         const match = responseText.match(/<GetQueryJSONResult>(.*?)<\/GetQueryJSONResult>/);
         const jsonResultString = match ? match[1] : null;
 
@@ -620,7 +672,6 @@ export const getTrackingNumberByQueryService = async (
                     };
                 }
 
-                // If result code indicates failure
                 if (jsonResult.ResultCode && jsonResult.ResultCode !== '0') {
                     return {
                         success: false,
@@ -636,7 +687,7 @@ export const getTrackingNumberByQueryService = async (
 
         return {
             success: false,
-            message: "GetQueryJSON boş veya hatalı yanıt",
+            message: "Takip numarası bulunamadı (GetQueryDS ve GetQueryJSON denendi)",
             rawResponse: responseText
         };
 
