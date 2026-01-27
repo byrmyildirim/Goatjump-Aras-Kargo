@@ -346,10 +346,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 const fData = await fulfillmentQuery.json();
                 const fulfillments = fData.data?.order?.fulfillments || [];
 
-                // Find the fulfillment that has the MOK as tracking number
-                const targetFulfillment = fulfillments.find((f: any) =>
+                // Find the fulfillment to update.
+                // Priority 1: Fulfillment with MOK as tracking number (ideal case)
+                // Priority 2: Fulfillment without any tracking number (fallback)
+                // Priority 3: Any OPEN/SUCCESS fulfillment if only one exists (broadest fallback)
+                let targetFulfillment = fulfillments.find((f: any) =>
                     f.trackingInfo?.some((t: any) => t.number === shipment.mok)
                 );
+
+                if (!targetFulfillment) {
+                    // Fallback: Find one with NO tracking info or "OPEN" status
+                    targetFulfillment = fulfillments.find((f: any) =>
+                        !f.trackingInfo || f.trackingInfo.length === 0
+                    );
+                }
+
+                if (!targetFulfillment && fulfillments.length === 1) {
+                    // If there is exactly one fulfillment, assume it is the one.
+                    targetFulfillment = fulfillments[0];
+                }
 
                 if (targetFulfillment) {
                     await admin.graphql(
