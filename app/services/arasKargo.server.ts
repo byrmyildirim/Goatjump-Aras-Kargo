@@ -378,31 +378,25 @@ export const getShipmentBarcode = async (
         return { success: false, message: 'Ayarlar eksik.' };
     }
 
+    // Attempt 1: GetArasBarcode (uses Username/Password/integrationCode)
+    // This seems more likely to work with the credentials we have than GetShipmentBarcode which asked for ApiKey.
     const soapRequestXML = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <GetShipmentBarcode xmlns="http://tempuri.org/">
-      <shipmentBarcodeRequest>
-        <ApiKey>${escapeXml(settings.queryPassword)}</ApiKey> 
-        <IntegrationCode>${escapeXml(mok)}</IntegrationCode>
-      </shipmentBarcodeRequest>
-    </GetShipmentBarcode>
+    <GetArasBarcode xmlns="http://tempuri.org/">
+      <Username>${escapeXml(settings.queryUsername)}</Username> 
+      <Password>${escapeXml(settings.queryPassword)}</Password>
+      <integrationCode>${escapeXml(mok)}</integrationCode>
+    </GetArasBarcode>
   </soap:Body>
 </soap:Envelope>`;
-
-    // Note: WSDL says 'ApiKey' is used (likely password or user+pass combo? Aras documentation usually specifies).
-    // Often it's just the password or a specific API key. Given other methods use userName/password, 
-    // let's try assuming ApiKey might be the password or we might need to check how they expect authentication here.
-    // However, looking at WSDL: <GetShipmentBarcode> -> <shipmentBarcodeRequest> -> <ApiKey>. 
-    // It does NOT have userName/password fields like other methods.
-    // Let's assume ApiKey = queryPassword for now, or maybe senderPassword. 
 
     try {
         const response = await fetch('https://customerws.araskargo.com.tr/arascargoservice.asmx', {
             method: 'POST',
             headers: {
                 'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': 'http://tempuri.org/GetShipmentBarcode'
+                'SOAPAction': 'http://tempuri.org/GetArasBarcode'
             },
             body: soapRequestXML
         });
@@ -411,23 +405,29 @@ export const getShipmentBarcode = async (
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(responseText, "text/xml");
 
-        const barcodeModel = xmlDoc.getElementsByTagName("BarcodeModel")[0];
-        if (barcodeModel) {
-            const trackingNumber = barcodeModel.getElementsByTagName("TrackingNumber")[0]?.textContent;
-            const barcode = barcodeModel.getElementsByTagName("Barcode")[0]?.textContent;
+        // The WSDL says it returns a BarcodeResponse which contains BarcodeModelLst (ArrayOfBarcodeModel)
+        const barcodeModels = xmlDoc.getElementsByTagName("BarcodeModel");
 
-            return {
-                success: true,
-                message: "Sorgulama başarılı",
-                trackingNumber: trackingNumber || undefined,
-                barcode: barcode || undefined,
-                rawResponse: responseText
-            };
-        } else {
-            return { success: false, message: "Barkod bilgisi bulunamadı.", rawResponse: responseText };
+        if (barcodeModels.length > 0) {
+            // Check the first model for TrackingNumber
+            const firstModel = barcodeModels[0];
+            const trackingNumber = firstModel.getElementsByTagName("TrackingNumber")[0]?.textContent;
+            const barcode = firstModel.getElementsByTagName("Barcode")[0]?.textContent;
+
+            if (trackingNumber) {
+                return {
+                    success: true,
+                    message: "Sorgulama başarılı (GetArasBarcode)",
+                    trackingNumber,
+                    barcode: barcode || undefined,
+                    rawResponse: responseText
+                };
+            }
         }
 
+        return { success: false, message: "Barkod bilgisi/Takip No bulunamadı.", rawResponse: responseText };
+
     } catch (error) {
-        return { success: false, message: "GetShipmentBarcode hatası: " + (error as Error).message };
+        return { success: false, message: "GetArasBarcode hatası: " + (error as Error).message };
     }
 };
