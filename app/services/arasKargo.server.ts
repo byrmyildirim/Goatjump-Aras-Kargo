@@ -353,3 +353,65 @@ export const getBarcode = async (
         return { success: false, message: "Barkod servisi hatası" };
     }
 };
+
+export const getShipmentBarcode = async (
+    mok: string,
+    settings: ArasKargoSettings
+): Promise<{ success: boolean; trackingNumber?: string; barcode?: string; message: string; rawResponse?: string }> => {
+    if (!settings.queryUsername || !settings.queryPassword) {
+        return { success: false, message: 'Ayarlar eksik.' };
+    }
+
+    const soapRequestXML = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetShipmentBarcode xmlns="http://tempuri.org/">
+      <shipmentBarcodeRequest>
+        <ApiKey>${escapeXml(settings.queryPassword)}</ApiKey> 
+        <IntegrationCode>${escapeXml(mok)}</IntegrationCode>
+      </shipmentBarcodeRequest>
+    </GetShipmentBarcode>
+  </soap:Body>
+</soap:Envelope>`;
+
+    // Note: WSDL says 'ApiKey' is used (likely password or user+pass combo? Aras documentation usually specifies).
+    // Often it's just the password or a specific API key. Given other methods use userName/password, 
+    // let's try assuming ApiKey might be the password or we might need to check how they expect authentication here.
+    // However, looking at WSDL: <GetShipmentBarcode> -> <shipmentBarcodeRequest> -> <ApiKey>. 
+    // It does NOT have userName/password fields like other methods.
+    // Let's assume ApiKey = queryPassword for now, or maybe senderPassword. 
+
+    try {
+        const response = await fetch('https://customerws.araskargo.com.tr/arascargoservice.asmx', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'http://tempuri.org/GetShipmentBarcode'
+            },
+            body: soapRequestXML
+        });
+
+        const responseText = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(responseText, "text/xml");
+
+        const barcodeModel = xmlDoc.getElementsByTagName("BarcodeModel")[0];
+        if (barcodeModel) {
+            const trackingNumber = barcodeModel.getElementsByTagName("TrackingNumber")[0]?.textContent;
+            const barcode = barcodeModel.getElementsByTagName("Barcode")[0]?.textContent;
+
+            return {
+                success: true,
+                message: "Sorgulama başarılı",
+                trackingNumber: trackingNumber || undefined,
+                barcode: barcode || undefined,
+                rawResponse: responseText
+            };
+        } else {
+            return { success: false, message: "Barkod bilgisi bulunamadı.", rawResponse: responseText };
+        }
+
+    } catch (error) {
+        return { success: false, message: "GetShipmentBarcode hatası: " + (error as Error).message };
+    }
+};

@@ -16,7 +16,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { getShipmentStatus } from "../services/arasKargo.server";
+import { getShipmentStatus, getShipmentBarcode } from "../services/arasKargo.server";
 import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -28,6 +28,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     await authenticate.admin(request);
     const formData = await request.formData();
     const mok = formData.get("mok") as string;
+    const actionType = formData.get("actionType") as string;
 
     if (!mok) {
         return json({ success: false, message: "Lütfen bir MÖK kodu girin." });
@@ -39,8 +40,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     try {
-        const result = await getShipmentStatus(mok, settings);
-        return json({ success: true, result });
+        if (actionType === 'barcode') {
+            const result = await getShipmentBarcode(mok, settings);
+            return json({ success: true, result, type: 'barcode' });
+        } else {
+            const result = await getShipmentStatus(mok, settings);
+            return json({ success: true, result, type: 'status' });
+        }
     } catch (error) {
         return json({ success: false, message: (error as Error).message });
     }
@@ -77,9 +83,16 @@ export default function TrackingTest() {
                                         placeholder="Örn: G01-1024"
                                     />
 
-                                    <Button submit variant="primary" loading={isLoading} disabled={!mokValue}>
-                                        Sorgula
-                                    </Button>
+                                    <BlockStack gap="200" inlineAlign="start">
+                                        <div style={{ display: 'flex', gap: '10px' }}>
+                                            <Button submit name="actionType" value="status" variant="primary" loading={isLoading} disabled={!mokValue}>
+                                                Durum Sorgula
+                                            </Button>
+                                            <Button submit name="actionType" value="barcode" variant="secondary" loading={isLoading} disabled={!mokValue}>
+                                                Takip No & Barkod Getir
+                                            </Button>
+                                        </div>
+                                    </BlockStack>
                                 </FormLayout>
                             </Form>
                         </Card>
