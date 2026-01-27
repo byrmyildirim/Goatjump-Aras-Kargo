@@ -271,7 +271,7 @@ export const getShipmentStatus = async (
 
         const orders = xmlDoc.getElementsByTagName("Order");
         if (!orders || orders.length === 0) {
-            return { success: false, message: "Kargo takibi: Kayıt bulunamadı." };
+            return { success: false, message: "Kargo takibi: Kayıt bulunamadı.", rawResponse: responseText };
         }
 
         const orderNode = orders[0];
@@ -285,11 +285,12 @@ export const getShipmentStatus = async (
             return {
                 success: true,
                 trackingNumber,
-                status: status || "İşlem görüyor"
+                status: status || "İşlem görüyor",
+                rawResponse: responseText // Added for debugging
             };
         }
 
-        return { success: false, message: "Takip numarası henüz oluşmamış." };
+        return { success: false, message: "Takip numarası henüz oluşmamış.", rawResponse: responseText };
 
     } catch (error) {
         return { success: false, message: "Sorgulama hatası: " + (error as Error).message };

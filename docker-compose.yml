@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://shopify:shopify_password@db:5432/shopify_app?schema=public
+      - SHOPIFY_APP_URL=${SHOPIFY_APP_URL}
+      - SHOPIFY_API_KEY=${SHOPIFY_API_KEY}
+      - SHOPIFY_API_SECRET=${SHOPIFY_API_SECRET}
+      - SCOPES=${SCOPES}
+      - HOST=0.0.0.0
+      - PORT=3000
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=shopify
+      - POSTGRES_PASSWORD=shopify_password
+      - POSTGRES_DB=shopify_app
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  db-data:

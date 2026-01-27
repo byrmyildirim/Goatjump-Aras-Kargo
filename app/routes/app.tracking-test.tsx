@@ -108,6 +108,16 @@ export default function TrackingTest() {
                                                 <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
                                                     {JSON.stringify(actionData.result, null, 2)}
                                                 </pre>
+                                                {actionData.result?.rawResponse && (
+                                                    <>
+                                                        <Text as="h4" variant="headingSm">Ham XML Yanıtı:</Text>
+                                                        <Box padding="200" background="bg-surface-active" borderRadius="100">
+                                                            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '10px' }}>
+                                                                {actionData.result.rawResponse}
+                                                            </pre>
+                                                        </Box>
+                                                    </>
+                                                )}
                                             </BlockStack>
                                         </Box>
                                     )}
