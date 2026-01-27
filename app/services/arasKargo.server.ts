@@ -275,10 +275,26 @@ export const getShipmentStatus = async (
         }
 
         const orderNode = orders[0];
-        const cargoBarcodeNode = orderNode.getElementsByTagName("CargoBarcode")[0] || orderNode.getElementsByTagName("InvoiceNumber")[0];
-        const statusNode = orderNode.getElementsByTagName("Status")[0];
+        // Try multiple fields for tracking number
+        let trackingNumber = orderNode.getElementsByTagName("CargoBarcode")[0]?.textContent;
 
-        const trackingNumber = cargoBarcodeNode?.textContent;
+        // If CargoBarcode is empty or missing, try PieceDetails > BarcodeNumber (ChatGPT advice)
+        if (!trackingNumber) {
+            const pieceDetails = orderNode.getElementsByTagName("PieceDetails")[0];
+            if (pieceDetails) {
+                const pieceDetail = pieceDetails.getElementsByTagName("PieceDetail")[0];
+                if (pieceDetail) {
+                    trackingNumber = pieceDetail.getElementsByTagName("BarcodeNumber")[0]?.textContent;
+                }
+            }
+        }
+
+        // Fallback to InvoiceNumber if completely desperate, but usually that is distinct
+        if (!trackingNumber) {
+            trackingNumber = orderNode.getElementsByTagName("InvoiceNumber")[0]?.textContent;
+        }
+
+        const statusNode = orderNode.getElementsByTagName("Status")[0];
         const status = statusNode?.textContent;
 
         if (trackingNumber) {

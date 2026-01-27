@@ -57,6 +57,7 @@ export default function TrackingTest() {
     const nav = useNavigation();
     const isLoading = nav.state === "submitting";
     const [mokValue, setMokValue] = useState("");
+    const [actionType, setActionType] = useState("status");
 
     return (
         <Page>
@@ -83,12 +84,13 @@ export default function TrackingTest() {
                                         placeholder="Örn: G01-1024"
                                     />
 
+                                    <input type="hidden" name="actionType" value={actionType} />
                                     <BlockStack gap="200" inlineAlign="start">
                                         <div style={{ display: 'flex', gap: '10px' }}>
-                                            <Button submit name="actionType" value="status" variant="primary" loading={isLoading} disabled={!mokValue}>
+                                            <Button onClick={() => setActionType('status')} submit variant="primary" loading={isLoading} disabled={!mokValue}>
                                                 Durum Sorgula
                                             </Button>
-                                            <Button submit name="actionType" value="barcode" variant="secondary" loading={isLoading} disabled={!mokValue}>
+                                            <Button onClick={() => setActionType('barcode')} submit variant="secondary" loading={isLoading} disabled={!mokValue}>
                                                 Takip No & Barkod Getir
                                             </Button>
                                         </div>
