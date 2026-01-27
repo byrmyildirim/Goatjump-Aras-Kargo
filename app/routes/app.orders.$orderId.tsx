@@ -555,7 +555,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                 return json({ status: "success", message: `Takip no güncellendi: ${statusResult.trackingNumber}` });
             }
 
-            return json({ status: "info", message: `Durum: ${statusResult.status || "Bilinmiyor"}` });
+            return json({ status: "info", message: `Durum: ${statusResult.trackingNumber ? "Kargoda (Takip No Var)" : "Bilinmiyor"}` });
 
         } catch (error) {
             return json({ status: "error", message: (error as Error).message });
