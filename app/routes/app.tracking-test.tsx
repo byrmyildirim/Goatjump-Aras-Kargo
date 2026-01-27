@@ -41,11 +41,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     try {
         if (actionType === 'barcode') {
-            // Try the IntegrationService method first as it's the "new" and "correct" one per user instructions
-            const result = await getTrackingNumberByQueryService(mok, settings);
-
-            // Fallback to GetArasBarcode if that fails? Or just return?
-            // Let's stick to the new method for now since user was very specific.
+            // Use GetOrderWithIntegrationCode - confirmed as the correct endpoint per user docs
+            const result = await getShipmentStatus(mok, settings);
             return json({ success: true, result, type: 'barcode' });
         } else {
             const result = await getShipmentStatus(mok, settings);
