@@ -16,7 +16,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { getShipmentStatus, getShipmentBarcode } from "../services/arasKargo.server";
+import { getShipmentStatus, getShipmentBarcode, getTrackingNumberByQueryService } from "../services/arasKargo.server";
 import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -41,7 +41,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     try {
         if (actionType === 'barcode') {
-            const result = await getShipmentBarcode(mok, settings);
+            // Try the IntegrationService method first as it's the "new" and "correct" one per user instructions
+            const result = await getTrackingNumberByQueryService(mok, settings);
+
+            // Fallback to GetArasBarcode if that fails? Or just return?
+            // Let's stick to the new method for now since user was very specific.
             return json({ success: true, result, type: 'barcode' });
         } else {
             const result = await getShipmentStatus(mok, settings);
