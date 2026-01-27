@@ -378,57 +378,108 @@ export const getShipmentBarcode = async (
         return { success: false, message: 'Ayarlar eksik.' };
     }
 
-    // Attempt 1: GetArasBarcode (uses Username/Password/integrationCode)
-    // This seems more likely to work with the credentials we have than GetShipmentBarcode which asked for ApiKey.
-    const soapRequestXML = `<?xml version="1.0" encoding="utf-8"?>
+    // Try 1: GetLabelDummy - WSDL shows it has explicit TrackingNumber in response (line 593)
+    const labelDummyXML = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <GetArasBarcode xmlns="http://tempuri.org/">
-      <Username>${escapeXml(settings.queryUsername)}</Username> 
+    <GetLabelDummy xmlns="http://tempuri.org/">
+      <Username>${escapeXml(settings.queryUsername)}</Username>
       <Password>${escapeXml(settings.queryPassword)}</Password>
       <integrationCode>${escapeXml(mok)}</integrationCode>
-    </GetArasBarcode>
+    </GetLabelDummy>
   </soap:Body>
 </soap:Envelope>`;
 
     try {
-        const response = await fetch('https://customerws.araskargo.com.tr/arascargoservice.asmx', {
+        const response1 = await fetch('https://customerws.araskargo.com.tr/arascargoservice.asmx', {
             method: 'POST',
             headers: {
                 'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': 'http://tempuri.org/GetArasBarcode'
+                'SOAPAction': 'http://tempuri.org/GetLabelDummy'
             },
-            body: soapRequestXML
+            body: labelDummyXML
         });
 
-        const responseText = await response.text();
+        const responseText1 = await response1.text();
         const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(responseText, "text/xml");
+        const xmlDoc1 = parser.parseFromString(responseText1, "text/xml");
 
-        // The WSDL says it returns a BarcodeResponse which contains BarcodeModelLst (ArrayOfBarcodeModel)
-        const barcodeModels = xmlDoc.getElementsByTagName("BarcodeModel");
+        // GetLabelDummy returns DummyBarcodeResponse with direct TrackingNumber field
+        const trackingNumberDirect = xmlDoc1.getElementsByTagName("TrackingNumber")[0]?.textContent;
+        const resultCode1 = xmlDoc1.getElementsByTagName("ResultCode")[0]?.textContent;
 
-        if (barcodeModels.length > 0) {
-            // Check the first model for TrackingNumber
-            const firstModel = barcodeModels[0];
-            const trackingNumber = firstModel.getElementsByTagName("TrackingNumber")[0]?.textContent;
-            const barcode = firstModel.getElementsByTagName("Barcode")[0]?.textContent;
+        if (trackingNumberDirect && resultCode1 !== "999") {
+            return {
+                success: true,
+                message: "Sorgulama başarılı (GetLabelDummy)",
+                trackingNumber: trackingNumberDirect,
+                rawResponse: responseText1
+            };
+        }
 
-            if (trackingNumber) {
+        // Check BarcodeModel as fallback within same response
+        const barcodeModels1 = xmlDoc1.getElementsByTagName("BarcodeModel");
+        if (barcodeModels1.length > 0) {
+            const trackingFromModel = barcodeModels1[0].getElementsByTagName("TrackingNumber")[0]?.textContent;
+            if (trackingFromModel) {
                 return {
                     success: true,
-                    message: "Sorgulama başarılı (GetArasBarcode)",
-                    trackingNumber,
-                    barcode: barcode || undefined,
-                    rawResponse: responseText
+                    message: "Sorgulama başarılı (GetLabelDummy/BarcodeModel)",
+                    trackingNumber: trackingFromModel,
+                    rawResponse: responseText1
                 };
             }
         }
 
-        return { success: false, message: "Barkod bilgisi/Takip No bulunamadı.", rawResponse: responseText };
+        // If GetLabelDummy didn't work (permission or no data), try GetBarcode (different from GetArasBarcode)
+        const getBarcodeXML = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetBarcode xmlns="http://tempuri.org/">
+      <Username>${escapeXml(settings.queryUsername)}</Username>
+      <Password>${escapeXml(settings.queryPassword)}</Password>
+      <integrationCode>${escapeXml(mok)}</integrationCode>
+    </GetBarcode>
+  </soap:Body>
+</soap:Envelope>`;
+
+        const response2 = await fetch('https://customerws.araskargo.com.tr/arascargoservice.asmx', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'http://tempuri.org/GetBarcode'
+            },
+            body: getBarcodeXML
+        });
+
+        const responseText2 = await response2.text();
+        const xmlDoc2 = parser.parseFromString(responseText2, "text/xml");
+
+        const barcodeModels2 = xmlDoc2.getElementsByTagName("BarcodeModel");
+        if (barcodeModels2.length > 0) {
+            const trackingNumber = barcodeModels2[0].getElementsByTagName("TrackingNumber")[0]?.textContent;
+            const barcode = barcodeModels2[0].getElementsByTagName("Barcode")[0]?.textContent;
+
+            if (trackingNumber) {
+                return {
+                    success: true,
+                    message: "Sorgulama başarılı (GetBarcode)",
+                    trackingNumber,
+                    barcode: barcode || undefined,
+                    rawResponse: responseText2
+                };
+            }
+        }
+
+        // Last resort: return both responses for debugging
+        return {
+            success: false,
+            message: "Takip numarası bulunamadı. (GetLabelDummy ve GetBarcode denendi)",
+            rawResponse: `--- GetLabelDummy Response ---\n${responseText1}\n\n--- GetBarcode Response ---\n${responseText2}`
+        };
 
     } catch (error) {
-        return { success: false, message: "GetArasBarcode hatası: " + (error as Error).message };
+        return { success: false, message: "Servis hatası: " + (error as Error).message };
     }
 };
 
