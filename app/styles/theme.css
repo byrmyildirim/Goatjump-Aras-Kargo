@@ -11,7 +11,7 @@
   --gj-accent: #ed8936;
   --gj-accent-light: #f6ad55;
   --gj-accent-dark: #dd6b20;
-  
+
   /* Status Colors */
   --gj-success: #38a169;
   --gj-success-bg: rgba(56, 161, 105, 0.1);
@@ -21,31 +21,31 @@
   --gj-info-bg: rgba(49, 130, 206, 0.1);
   --gj-error: #e53e3e;
   --gj-error-bg: rgba(229, 62, 62, 0.1);
-  
+
   /* Neutral Colors */
   --gj-surface: #f7fafc;
   --gj-surface-dark: #edf2f7;
   --gj-border: #e2e8f0;
   --gj-text: #2d3748;
   --gj-text-muted: #718096;
-  
+
   /* Shadows */
   --gj-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --gj-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --gj-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
   --gj-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  
+
   /* Gradients */
   --gj-gradient-primary: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
   --gj-gradient-accent: linear-gradient(135deg, #ed8936 0%, #f6ad55 100%);
   --gj-gradient-success: linear-gradient(135deg, #38a169 0%, #48bb78 100%);
   --gj-gradient-info: linear-gradient(135deg, #3182ce 0%, #4299e1 100%);
   --gj-gradient-warning: linear-gradient(135deg, #ecc94b 0%, #f6e05e 100%);
-  
+
   /* Transitions */
   --gj-transition: all 0.2s ease-in-out;
   --gj-transition-slow: all 0.3s ease-in-out;
-  
+
   /* Border Radius */
   --gj-radius: 8px;
   --gj-radius-lg: 12px;
@@ -121,12 +121,14 @@ body {
 
 /* ============== Hero Section ============== */
 .gj-hero {
-  background: var(--gj-gradient-primary);
+  background: var(--gj-surface-dark);
   border-radius: var(--gj-radius-xl);
   padding: 32px;
-  color: white;
+  color: var(--gj-text);
   position: relative;
   overflow: hidden;
+  border: 1px solid var(--gj-border);
+  box-shadow: var(--gj-shadow);
 }
 
 .gj-hero::after {
@@ -136,7 +138,7 @@ body {
   right: -20%;
   width: 60%;
   height: 200%;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.3);
   transform: rotate(30deg);
 }
 
@@ -144,10 +146,11 @@ body {
   font-size: 1.5rem;
   font-weight: 700;
   margin-bottom: 8px;
+  color: var(--gj-primary);
 }
 
 .gj-hero p {
-  opacity: 0.9;
+  color: var(--gj-text-muted);
   margin-bottom: 20px;
 }
 
@@ -168,7 +171,8 @@ body {
   color: #b7791f;
 }
 
-.gj-badge.in-transit, .gj-badge.sent {
+.gj-badge.in-transit,
+.gj-badge.sent {
   background-color: var(--gj-info-bg);
   color: #2b6cb0;
 }
@@ -178,7 +182,8 @@ body {
   color: #276749;
 }
 
-.gj-badge.error, .gj-badge.cancelled {
+.gj-badge.error,
+.gj-badge.cancelled {
   background-color: var(--gj-error-bg);
   color: #c53030;
 }
@@ -481,13 +486,27 @@ body {
 
 /* ============== Animations ============== */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .gj-animate-in {
@@ -499,15 +518,15 @@ body {
   .gj-stat-card {
     padding: 16px;
   }
-  
+
   .gj-stat-card .stat-value {
     font-size: 2rem;
   }
-  
+
   .gj-hero {
     padding: 24px;
   }
-  
+
   .gj-activity-row {
     grid-template-columns: 1fr 1fr;
   }
@@ -540,14 +559,4 @@ body {
 .Polaris-Badge--statusInfo {
   background-color: var(--gj-info-bg) !important;
   color: #2b6cb0 !important;
-}
-
-.Polaris-Button--primary {
-  background: var(--gj-gradient-primary) !important;
-  border: none !important;
-}
-
-.Polaris-Button--primary:hover {
-  background: var(--gj-gradient-primary) !important;
-  filter: brightness(1.1);
 }

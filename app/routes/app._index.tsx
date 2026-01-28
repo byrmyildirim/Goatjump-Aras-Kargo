@@ -90,9 +90,6 @@ export default function Index() {
                 <RemixLink to="/app/settings">
                   <Button size="large" icon={PackageIcon}>Ayarlar</Button>
                 </RemixLink>
-                <RemixLink to="/app/tracking-test">
-                  <Button size="large" variant="plain" tone="critical">Test Aracı</Button>
-                </RemixLink>
               </InlineStack>
             </div>
 
