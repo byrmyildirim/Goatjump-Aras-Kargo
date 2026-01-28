@@ -346,7 +346,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 `#graphql
                 query getFulfillmentId($id: ID!) {
                     order(id: $id) {
-                        fulfillments {
+                        fulfillments(first: 10) {
                             id
                             status
                             trackingInfo {
@@ -377,37 +377,40 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 where: { shipmentId: shipment.id }
             });
 
-            // Find the fulfillment that contains the items in this shipment
-            let targetFulfillment = fulfillments.find((f: any) => {
-                // Check if this fulfillment contains ALL items from the shipment
-                // (Or at least overlap, but ideally it should be the one covering these items)
-                const fInfos = f.fulfillmentLineItems.edges.map((e: any) => e.node.lineItem.id);
+            // Filter out cancelled fulfillments
+            const activeFulfillments = fulfillments.filter((f: any) => f.status !== 'CANCELLED');
 
+            if (activeFulfillments.length === 0) {
+                return { success: false, message: "Shopify'da aktif gönderim bulunamadı. Veritabanı güncellendi." };
+            }
+
+            // Find the fulfillment that contains the items in this shipment
+            let targetFulfillment = activeFulfillments.find((f: any) => {
+                const fInfos = f.fulfillmentLineItems.edges.map((e: any) => e.node.lineItem.id);
                 // Check intersection
                 const hasItems = shipmentItems.some(sItem =>
                     fInfos.includes(sItem.lineItemId) || fInfos.includes(`gid://shopify/LineItem/${sItem.lineItemId}`)
                 );
-
                 return hasItems;
             });
 
             // Fallback: If strict item match failed, try tracking number match (MOK)
             if (!targetFulfillment && shipment.mok) {
-                targetFulfillment = fulfillments.find((f: any) =>
+                targetFulfillment = activeFulfillments.find((f: any) =>
                     f.trackingInfo?.some((t: any) => t.number === shipment.mok)
                 );
             }
 
-            // Fallback 2: If we have simple single fulfillment order
-            if (!targetFulfillment && fulfillments.length === 1) {
-                targetFulfillment = fulfillments[0];
+            // Fallback 2: If only one active fulfillment exists, use it
+            if (!targetFulfillment && activeFulfillments.length === 1) {
+                targetFulfillment = activeFulfillments[0];
             }
 
             if (targetFulfillment) {
-                await admin.graphql(
+                const mutationResponse = await admin.graphql(
                     `#graphql
-                    mutation fulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInfoInput!) {
-                        fulfillmentTrackingInfoUpdateV2(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput) {
+                    mutation fulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInfoInput!, $notifyCustomer: Boolean) {
+                        fulfillmentTrackingInfoUpdateV2(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput, notifyCustomer: $notifyCustomer) {
                             fulfillment {
                                 id
                                 status
@@ -427,15 +430,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                             trackingInfoInput: {
                                 company: "Aras Kargo",
                                 number: trackingNumber,
-                                url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${trackingNumber}`
-                            }
+                                url: `https://www.araskargo.com.tr/t?q=${trackingNumber}`
+                            },
+                            notifyCustomer: true
                         }
                     }
                 );
+
+                const mutationData = await mutationResponse.json();
+                const userErrors = mutationData.data?.fulfillmentTrackingInfoUpdateV2?.userErrors;
+
+                if (userErrors && userErrors.length > 0) {
+                    const errorMsg = userErrors.map((e: any) => e.message).join(", ");
+                    return { success: false, message: `Shopify Hatası: ${errorMsg}. (DB Güncellendi)` };
+                }
+            } else {
+                return { success: false, message: "Eşleşen Shopify gönderimi bulunamadı. (DB Güncellendi)" };
             }
         } catch (err) {
             console.error("Shopify Sync Error:", err);
-            return { success: false, message: "Shopify güncellenirken hata oluştu ancak DB güncellendi." };
+            // Parse error message if possible
+            let errorMsg = "Shopify güncellenirken hata oluştu.";
+            if (err instanceof Error) errorMsg += " (" + err.message + ")";
+            return { success: false, message: errorMsg + " DB güncellendi." };
         }
         return { success: true, trackingNumber: trackingNumber };
     };
