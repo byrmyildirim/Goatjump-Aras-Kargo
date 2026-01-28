@@ -724,6 +724,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     // Check delivery status for shipments with tracking number
+    // Check delivery status for shipments with MOK (Integration Code)
     if (intent === "checkDeliveryStatus") {
         const shipmentId = formData.get("shipmentId") as string;
         const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
@@ -732,8 +733,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return json({ status: "error", message: "Gönderi bulunamadı." });
         }
 
-        if (!shipment.trackingNumber) {
-            return json({ status: "error", message: "Takip numarası yok, önce takip no çekin." });
+        // Use MOK (Integration Code) - it is mandatory in schema
+        if (!shipment.mok) {
+            return json({ status: "error", message: "MÖK (Entegrasyon Kodu) bulunamadı." });
         }
 
         const settings = await prisma.arasKargoSettings.findFirst();
@@ -741,7 +743,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return json({ status: "error", message: "Ayarlar bulunamadı." });
         }
 
-        const result = await getDeliveryStatus(shipment.trackingNumber, settings);
+        // QueryType 1 = MOK
+        const result = await getDeliveryStatus(shipment.mok, settings, 1);
 
         if (result.success) {
             // Update shipment status in DB
@@ -754,32 +757,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
             // If delivered, update Shopify fulfillment status
             if (result.status === 'DELIVERED' && shipment.orderId) {
-                try {
-                    // Get fulfillments for this order and update status
-                    const fulfillmentQuery = await admin.graphql(`
-                        #graphql
-                        query getFulfillments($id: ID!) {
-                            order(id: $id) {
-                                fulfillments {
-                                    id
-                                    status
-                                }
-                            }
-                        }
-                    `, {
-                        variables: { id: `gid://shopify/Order/${shipment.orderId}` }
-                    });
-
-                    const fulfillmentData = await fulfillmentQuery.json();
-                    const fulfillments = fulfillmentData.data?.order?.fulfillments || [];
-
-                    // Note: Shopify doesn't have a direct "mark as delivered" API for fulfillments
-                    // The fulfillment status tracking is typically handled by the carrier
-                    // But we update our local DB status
-
-                } catch (e) {
-                    console.error("Error checking Shopify fulfillment:", e);
-                }
+                // TODO: Implement robust Shopify fulfillment update (requires finding fulfillment ID first)
+                console.log(`[Shopify Sync] Order ${shipment.orderNumber} delivered. Ready to update fulfillment status.`);
             }
 
             const statusLabel = result.status === 'DELIVERED' ? 'Teslim Edildi' :
@@ -801,10 +780,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return json({ status: "error", message: "Ayarlar bulunamadı." });
         }
 
-        // Find shipments that have tracking number but not yet delivered
+        // Find shipments that are not yet delivered
         const shipmentsToCheck = await prisma.shipment.findMany({
             where: {
-                trackingNumber: { not: null },
                 status: { not: 'DELIVERED' }
             },
             take: 20
@@ -818,9 +796,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         let inTransitCount = 0;
 
         for (const shipment of shipmentsToCheck) {
-            if (!shipment.trackingNumber) continue;
+            if (!shipment.mok) continue;
 
-            const result = await getDeliveryStatus(shipment.trackingNumber, settings);
+            const result = await getDeliveryStatus(shipment.mok, settings, 1);
 
             if (result.success) {
                 const newStatus = result.status === 'DELIVERED' ? 'DELIVERED' :

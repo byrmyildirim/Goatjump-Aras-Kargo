@@ -43,7 +43,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return json({ success: true, result, type: 'barcode' });
         } else if (actionType === 'deliveryStatus') {
             if (!trackingNo) return json({ success: false, message: "Lütfen bir takip numarası girin." });
-            const result = await getDeliveryStatus(trackingNo, settings);
+            const result = await getDeliveryStatus(trackingNo, settings, 2); // 2 = Tracking Number
             return json({ success: true, result, type: 'deliveryStatus' });
         } else {
             if (!mok) return json({ success: false, message: "Lütfen bir MÖK kodu girin." });

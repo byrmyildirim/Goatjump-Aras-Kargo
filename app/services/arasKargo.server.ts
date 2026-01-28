@@ -480,8 +480,9 @@ export const getTrackingNumberByQueryService = async (
  * 7 = Yönlendirildi (Redirected)
  */
 export const getDeliveryStatus = async (
-    trackingNumber: string,
-    settings: ArasKargoSettings
+    queryValue: string, // MOK or Tracking Number
+    settings: ArasKargoSettings,
+    queryType: number = 1 // 1: MOK (Integration Code), 2: Tracking Number
 ): Promise<{ success: boolean; status: 'PENDING' | 'IN_TRANSIT' | 'DELIVERED' | 'UNKNOWN'; message: string; rawResponse?: string }> => {
     if (!settings.queryUsername || !settings.queryPassword || !settings.queryCustomerCode) {
         return { success: false, status: 'UNKNOWN', message: 'Ayarlar eksik.' };
@@ -491,8 +492,15 @@ export const getDeliveryStatus = async (
 
     const loginInfoString = `<LoginInfo><UserName>${settings.queryUsername}</UserName><Password>${settings.queryPassword}</Password><CustomerCode>${settings.queryCustomerCode}</CustomerCode></LoginInfo>`;
 
-    // QueryType 2 = Query by Tracking Number (Kargo Takip Numarası ile sorgulama)
-    const queryInfoString = `<QueryInfo><QueryType>2</QueryType><TrackingNumber>${trackingNumber}</TrackingNumber></QueryInfo>`;
+    // Construct QueryInfo based on type
+    // QueryType 1 = Integration Code (MÖK ile sorgulama) - Default and preferred
+    // QueryType 2 = Tracking Number (Takip No ile sorgulama)
+    let queryInfoString = '';
+    if (queryType === 1) {
+        queryInfoString = `<QueryInfo><QueryType>1</QueryType><IntegrationCode>${queryValue}</IntegrationCode></QueryInfo>`;
+    } else {
+        queryInfoString = `<QueryInfo><QueryType>2</QueryType><TrackingNumber>${queryValue}</TrackingNumber></QueryInfo>`;
+    }
 
     const soapEnvelope = `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
        <soapenv:Header/>
@@ -515,7 +523,7 @@ export const getDeliveryStatus = async (
         });
 
         const responseText = await response.text();
-        console.log('[getDeliveryStatus] Raw Response for tracking:', trackingNumber, responseText.substring(0, 1000));
+        console.log('[getDeliveryStatus] Raw Response for query:', queryValue, 'Type:', queryType, responseText.substring(0, 1000));
 
         // Use Regex to extract DURUM_KODU directly from the response string (GetQueryDS returns XML)
         // Matches <DURUM_KODU>6</DURUM_KODU> or &lt;DURUM_KODU&gt;6&lt;/DURUM_KODU&gt;
