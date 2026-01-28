@@ -24,6 +24,35 @@ import prisma from "../db.server";
 import { sendPackageToAras, getShipmentStatus, getBarcode } from "../services/arasKargo.server";
 import { useState, useEffect } from "react";
 
+// Cargo companies list with tracking URL patterns
+const CARGO_COMPANIES = [
+    { value: 'Aras Kargo', label: 'Aras Kargo', urlPattern: 'http://kargotakip.araskargo.com.tr/mainpage.aspx?code={tracking}' },
+    { value: 'MNG Kargo', label: 'MNG Kargo', urlPattern: 'https://www.mngkargo.com.tr/wps/portal/kargotakip?code={tracking}' },
+    { value: 'Yurtiçi Kargo', label: 'Yurtiçi Kargo', urlPattern: 'https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code={tracking}' },
+    { value: 'Sürat Kargo', label: 'Sürat Kargo', urlPattern: 'https://www.suratkargo.com.tr/KargoTakip?kargotakipno={tracking}' },
+    { value: 'PTT Kargo', label: 'PTT Kargo', urlPattern: 'https://gonderitakip.ptt.gov.tr/Track/Verify?q={tracking}' },
+    { value: 'UPS Kargo', label: 'UPS Kargo', urlPattern: 'https://www.ups.com/track?tracknum={tracking}' },
+    { value: 'DHL', label: 'DHL', urlPattern: 'https://www.dhl.com/tr-tr/home/tracking.html?tracking-id={tracking}' },
+    { value: 'FedEx', label: 'FedEx', urlPattern: 'https://www.fedex.com/fedextrack/?trknbr={tracking}' },
+    { value: 'Trendyol Express', label: 'Trendyol Express', urlPattern: 'https://www.trendyolexpress.com/gonderi-takip/{tracking}' },
+    { value: 'Hepsijet', label: 'Hepsijet', urlPattern: 'https://www.hepsijet.com/gonderi-takip?trackingNumber={tracking}' },
+    { value: 'Kargoist', label: 'Kargoist', urlPattern: 'https://kargoist.com/gonderi-takip/{tracking}' },
+    { value: 'Kolay Gelsin', label: 'Kolay Gelsin', urlPattern: 'https://kolaygelsin.com/tr/gonderi-takip?gonderiNo={tracking}' },
+    { value: 'Sendeo', label: 'Sendeo', urlPattern: 'https://www.sendeo.com.tr/takip/{tracking}' },
+    { value: 'Scotty', label: 'Scotty', urlPattern: 'https://scotty.com.tr/{tracking}' },
+    { value: 'Kuryenet', label: 'Kuryenet', urlPattern: 'https://www.kuryenet.com/gonderi-sorgula/{tracking}' },
+    { value: 'Horoz Lojistik', label: 'Horoz Lojistik', urlPattern: 'https://www.horozlojistik.com.tr/gonderi-takip/{tracking}' },
+    { value: 'Diğer', label: 'Diğer', urlPattern: '' },
+];
+
+const getTrackingUrl = (company: string, trackingNumber: string): string => {
+    const found = CARGO_COMPANIES.find(c => c.value === company);
+    if (found && found.urlPattern) {
+        return found.urlPattern.replace('{tracking}', trackingNumber);
+    }
+    return '';
+};
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     let orders = [];
     let localShipments = [];
@@ -457,6 +486,132 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return { success: true, trackingNumber: trackingNumber };
     };
 
+    // Helper for updating a single shipment with custom cargo company
+    const updateShipmentAndShopifyWithCompany = async (
+        shipment: any,
+        trackingNumber: string,
+        cargoCompany: string,
+        trackingUrl: string,
+        admin: any
+    ) => {
+        // 1. Update DB
+        await prisma.shipment.update({
+            where: { id: shipment.id },
+            data: {
+                trackingNumber: trackingNumber,
+                status: "IN_TRANSIT"
+            }
+        });
+
+        // 2. Update Shopify Fulfillment
+        try {
+            const fulfillmentQuery = await admin.graphql(
+                `#graphql
+                query getFulfillmentId($id: ID!) {
+                    order(id: $id) {
+                        fulfillments(first: 10) {
+                            id
+                            status
+                            trackingInfo {
+                                number
+                                company
+                            }
+                            fulfillmentLineItems(first: 50) {
+                                edges {
+                                    node {
+                                        id
+                                        lineItem {
+                                            id
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }`,
+                { variables: { id: `gid://shopify/Order/${shipment.orderId}` } }
+            );
+
+            const fData = await fulfillmentQuery.json();
+            const fulfillments = fData.data?.order?.fulfillments || [];
+            const activeFulfillments = fulfillments.filter((f: any) => f.status !== 'CANCELLED');
+
+            if (activeFulfillments.length === 0) {
+                return { success: false, message: "Shopify'da aktif gönderim bulunamadı. Veritabanı güncellendi." };
+            }
+
+            // Find matching fulfillment
+            const shipmentItems = await prisma.shipmentItem.findMany({
+                where: { shipmentId: shipment.id }
+            });
+
+            let targetFulfillment = activeFulfillments.find((f: any) => {
+                const fInfos = f.fulfillmentLineItems.edges.map((e: any) => e.node.lineItem.id);
+                return shipmentItems.some(sItem =>
+                    fInfos.includes(sItem.lineItemId) || fInfos.includes(`gid://shopify/LineItem/${sItem.lineItemId}`)
+                );
+            });
+
+            if (!targetFulfillment && shipment.mok) {
+                targetFulfillment = activeFulfillments.find((f: any) =>
+                    f.trackingInfo?.some((t: any) => t.number === shipment.mok)
+                );
+            }
+
+            if (!targetFulfillment && activeFulfillments.length === 1) {
+                targetFulfillment = activeFulfillments[0];
+            }
+
+            if (targetFulfillment) {
+                const mutationResponse = await admin.graphql(
+                    `#graphql
+                    mutation fulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInput!, $notifyCustomer: Boolean) {
+                        fulfillmentTrackingInfoUpdate(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput, notifyCustomer: $notifyCustomer) {
+                            fulfillment {
+                                id
+                                status
+                                trackingInfo {
+                                    number
+                                }
+                            }
+                            userErrors {
+                                field
+                                message
+                            }
+                        }
+                    }`,
+                    {
+                        variables: {
+                            fulfillmentId: targetFulfillment.id,
+                            trackingInfoInput: {
+                                company: cargoCompany,
+                                number: trackingNumber,
+                                url: trackingUrl || undefined
+                            },
+                            notifyCustomer: true
+                        }
+                    }
+                );
+
+                const mutationData = await mutationResponse.json();
+                const userErrors = mutationData.data?.fulfillmentTrackingInfoUpdate?.userErrors;
+
+                if (userErrors && userErrors.length > 0) {
+                    const errorMsg = userErrors.map((e: any) => e.message).join(", ");
+                    return { success: false, message: `Shopify Hatası: ${errorMsg}. (DB Güncellendi)` };
+                }
+            } else {
+                return { success: false, message: "Eşleşen Shopify gönderimi bulunamadı. (DB Güncellendi)" };
+            }
+        } catch (err) {
+            console.error("Shopify Sync Error:", err);
+            let errorMsg = "Shopify güncellenirken hata oluştu.";
+            if (err instanceof Error) errorMsg += " (" + err.message + ")";
+            return { success: false, message: errorMsg + " DB güncellendi." };
+        }
+        return { success: true, trackingNumber: trackingNumber };
+    };
+
     // Helper for updating a single shipment
     const checkAndUpdateShipment = async (shipment: any, settings: any, admin: any) => {
         if (!shipment.mok) return { success: false, message: "MÖK yok" };
@@ -472,13 +627,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (intent === "manualUpdateTracking") {
         const shipmentId = formData.get("shipmentId") as string;
         const trackingNumber = formData.get("trackingNumber") as string;
+        const cargoCompany = formData.get("cargoCompany") as string || "Aras Kargo";
 
         if (!trackingNumber) return json({ status: "error", message: "Takip numarası girilmedi." });
 
         const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
         if (!shipment) return json({ status: "error", message: "Gönderi bulunamadı." });
 
-        const result = await updateShipmentAndShopify(shipment, trackingNumber, admin);
+        const trackingUrl = getTrackingUrl(cargoCompany, trackingNumber);
+        const result = await updateShipmentAndShopifyWithCompany(shipment, trackingNumber, cargoCompany, trackingUrl, admin);
         if (result.success) {
             return json({ status: "success", message: `Takip no kaydedildi: ${result.trackingNumber}` });
         } else {
@@ -560,6 +717,7 @@ export default function Shipments() {
     // Extract order ID from GID for navigation
     const [selectedManualShipment, setSelectedManualShipment] = useState<any | null>(null);
     const [manualTrackingNo, setManualTrackingNo] = useState("");
+    const [selectedCargoCompany, setSelectedCargoCompany] = useState("Aras Kargo");
 
     const handleOrderClick = (order: any) => {
         // Extract numeric ID from gid://shopify/Order/12345 format
@@ -860,6 +1018,7 @@ export default function Shipments() {
                                 form.append("intent", "manualUpdateTracking");
                                 form.append("shipmentId", selectedManualShipment.id);
                                 form.append("trackingNumber", manualTrackingNo);
+                                form.append("cargoCompany", selectedCargoCompany);
                                 fetcher.submit(form, { method: "POST" });
                                 setSelectedManualShipment(null);
                             },
@@ -867,13 +1026,21 @@ export default function Shipments() {
                         secondaryActions={[{ content: 'İptal', onAction: () => setSelectedManualShipment(null) }]}
                     >
                         <Modal.Section>
-                            <TextField
-                                label="Takip Numarası"
-                                value={manualTrackingNo}
-                                onChange={setManualTrackingNo}
-                                autoComplete="off"
-                                placeholder="Örn: 1234567890"
-                            />
+                            <BlockStack gap="400">
+                                <Select
+                                    label="Kargo Firması"
+                                    options={CARGO_COMPANIES.map(c => ({ label: c.label, value: c.value }))}
+                                    value={selectedCargoCompany}
+                                    onChange={setSelectedCargoCompany}
+                                />
+                                <TextField
+                                    label="Takip Numarası"
+                                    value={manualTrackingNo}
+                                    onChange={setManualTrackingNo}
+                                    autoComplete="off"
+                                    placeholder="Örn: 1234567890"
+                                />
+                            </BlockStack>
                         </Modal.Section>
                     </Modal>
                 )
