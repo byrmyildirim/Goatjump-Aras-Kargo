@@ -497,10 +497,10 @@ export const getDeliveryStatus = async (
     const soapEnvelope = `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
        <soapenv:Header/>
        <soapenv:Body>
-          <tem:GetQueryJSON>
+          <tem:GetQueryDS>
              <tem:loginInfo><![CDATA[${loginInfoString}]]></tem:loginInfo>
              <tem:queryInfo><![CDATA[${queryInfoString}]]></tem:queryInfo>
-          </tem:GetQueryJSON>
+          </tem:GetQueryDS>
        </soapenv:Body>
     </soapenv:Envelope>`;
 
@@ -509,13 +509,80 @@ export const getDeliveryStatus = async (
             method: 'POST',
             headers: {
                 'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': 'http://tempuri.org/IArasCargoIntegrationService/GetQueryJSON'
+                'SOAPAction': 'http://tempuri.org/IArasCargoIntegrationService/GetQueryDS'
             },
             body: soapEnvelope
         });
 
         const responseText = await response.text();
-        console.log('[getDeliveryStatus] Raw Response for tracking:', trackingNumber, responseText.substring(0, 500));
+        console.log('[getDeliveryStatus] Raw Response for tracking:', trackingNumber, responseText.substring(0, 1000));
+
+        // Use Regex to extract DURUM_KODU directly from the response string (GetQueryDS returns XML)
+        // Matches <DURUM_KODU>6</DURUM_KODU> or &lt;DURUM_KODU&gt;6&lt;/DURUM_KODU&gt;
+
+        const durumKoduRegex = /(?:<|&lt;)DURUM_KODU(?:>|&gt;)(\d+)(?:<|&lt;)\/DURUM_KODU(?:>|&gt;)/i;
+        const durumKoduMatch = responseText.match(durumKoduRegex);
+
+        let durumKoduNum = -1;
+        if (durumKoduMatch && durumKoduMatch[1]) {
+            durumKoduNum = parseInt(durumKoduMatch[1], 10);
+            console.log('[getDeliveryStatus] DURUM_KODU found via Regex:', durumKoduNum);
+        }
+
+        // Also check for delivery date as confirmation
+        const deliveryDateRegex = /(?:<|&lt;)(?:TESLIM_TARIHI|TESLIM_ZAMANI|DeliveryDate)(?:>|&gt;)([^<&]+)(?:<|&lt;)/i;
+        const deliveryDateMatch = responseText.match(deliveryDateRegex);
+        const hasDeliveryDate = !!deliveryDateMatch && deliveryDateMatch[1].trim().length > 0;
+
+        // Check Delivery Status
+        // 5 = Parçalı Teslimat, 6 = Teslim Edildi
+        if (durumKoduNum === 6 || durumKoduNum === 5) {
+            return {
+                success: true,
+                status: 'DELIVERED',
+                message: `Kargo teslim edildi (DURUM_KODU=${durumKoduNum})`,
+                rawResponse: responseText.substring(0, 2000)
+            };
+        }
+
+        if (hasDeliveryDate) {
+            return {
+                success: true,
+                status: 'DELIVERED',
+                message: `Kargo teslim edildi (Teslim Tarihi: ${deliveryDateMatch?.[1]})`,
+                rawResponse: responseText.substring(0, 2000)
+            };
+        }
+
+        // Text based check
+        if (responseText.includes('TESLİM EDİLDİ') || responseText.includes('TESLIM EDILDI') || responseText.includes('DELIVERED')) {
+            return {
+                success: true,
+                status: 'DELIVERED',
+                message: `Kargo teslim edildi (Metin Kontrolü)`,
+                rawResponse: responseText.substring(0, 2000)
+            };
+        }
+
+        // In Transit check
+        if (durumKoduNum > 0) {
+            return {
+                success: true,
+                status: 'IN_TRANSIT',
+                message: `Kargo yolda/işlemde (DURUM_KODU=${durumKoduNum})`,
+                rawResponse: responseText.substring(0, 2000)
+            };
+        }
+
+        // Default to In Transit if we have GetQueryDS response (NewDataSet)
+        if (responseText.includes('NewDataSet') || responseText.includes('GetQueryDSResult') || responseText.includes('diffgram')) {
+            return {
+                success: true,
+                status: 'IN_TRANSIT',
+                message: 'Kargo bilgisi alındı',
+                rawResponse: responseText.substring(0, 2000)
+            };
+        }
 
         // Parse Response
         const match = responseText.match(/<GetQueryJSONResult>(.*?)<\/GetQueryJSONResult>/);
