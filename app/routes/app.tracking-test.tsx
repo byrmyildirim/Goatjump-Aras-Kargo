@@ -16,7 +16,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { getShipmentStatus, getShipmentBarcode, getTrackingNumberByQueryService } from "../services/arasKargo.server";
+import { getShipmentStatus, getTrackingNumberByQueryService, getDeliveryStatus } from "../services/arasKargo.server";
 import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -28,11 +28,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     await authenticate.admin(request);
     const formData = await request.formData();
     const mok = formData.get("mok") as string;
+    const trackingNo = formData.get("trackingNo") as string;
     const actionType = formData.get("actionType") as string;
-
-    if (!mok) {
-        return json({ success: false, message: "Lütfen bir MÖK kodu girin." });
-    }
 
     const settings = await prisma.arasKargoSettings.findFirst();
     if (!settings) {
@@ -41,10 +38,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     try {
         if (actionType === 'barcode') {
-            // Use ArasCargoIntegrationService (GetQueryDS/GetQueryJSON) - from user's PDF documentation
+            if (!mok) return json({ success: false, message: "Lütfen bir MÖK kodu girin." });
             const result = await getTrackingNumberByQueryService(mok, settings);
             return json({ success: true, result, type: 'barcode' });
+        } else if (actionType === 'deliveryStatus') {
+            if (!trackingNo) return json({ success: false, message: "Lütfen bir takip numarası girin." });
+            const result = await getDeliveryStatus(trackingNo, settings);
+            return json({ success: true, result, type: 'deliveryStatus' });
         } else {
+            if (!mok) return json({ success: false, message: "Lütfen bir MÖK kodu girin." });
             const result = await getShipmentStatus(mok, settings);
             return json({ success: true, result, type: 'status' });
         }
@@ -58,6 +60,7 @@ export default function TrackingTest() {
     const nav = useNavigation();
     const isLoading = nav.state === "submitting";
     const [mokValue, setMokValue] = useState("");
+    const [trackingNoValue, setTrackingNoValue] = useState("");
     const [actionType, setActionType] = useState("status");
 
     return (
@@ -96,6 +99,35 @@ export default function TrackingTest() {
                                             </Button>
                                         </div>
                                     </BlockStack>
+                                </FormLayout>
+                            </Form>
+                        </Card>
+                    </Layout.Section>
+
+                    <Layout.Section>
+                        <Card>
+                            <Form method="post">
+                                <FormLayout>
+                                    <Text as="h2" variant="headingMd">
+                                        Takip Numarası ile Teslimat Durumu Kontrolü
+                                    </Text>
+                                    <Text as="p" variant="bodyMd">
+                                        Takip numarası girerek kargoların DURUM_KODU değerini test edebilirsiniz.
+                                    </Text>
+
+                                    <TextField
+                                        label="Takip Numarası"
+                                        name="trackingNo"
+                                        value={trackingNoValue}
+                                        onChange={(val) => setTrackingNoValue(val)}
+                                        autoComplete="off"
+                                        placeholder="Örn: 6344303813358"
+                                    />
+
+                                    <input type="hidden" name="actionType" value="deliveryStatus" />
+                                    <Button submit variant="primary" loading={isLoading} disabled={!trackingNoValue}>
+                                        Teslimat Durumu Sorgula
+                                    </Button>
                                 </FormLayout>
                             </Form>
                         </Card>
