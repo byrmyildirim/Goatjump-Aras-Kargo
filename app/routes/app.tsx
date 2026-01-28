@@ -25,6 +25,7 @@ export default function App() {
           Ana Sayfa
         </Link>
         <Link to="/app/shipments">Kargo İşlemleri</Link>
+        <Link to="/app/tracking-test">Kargo Takip Test</Link>
         <Link to="/app/settings">Ayarlar</Link>
       </NavMenu>
       <Outlet />
