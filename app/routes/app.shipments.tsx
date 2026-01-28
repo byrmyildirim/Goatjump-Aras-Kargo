@@ -172,6 +172,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return json({ status: "error", message: result.message });
         }
 
+        // 1.5. Try to get Real Tracking Number immediately
+        let trackingNumber = null;
+        if (result.mok) {
+            const statusResult = await getShipmentStatus(result.mok, settings);
+            if (statusResult.success && statusResult.trackingNumber) {
+                trackingNumber = statusResult.trackingNumber;
+            }
+        }
+
         // 2. Save Shipment to DB
         const shipment = await prisma.shipment.create({
             data: {
@@ -183,6 +192,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 addressId: supplier.arasAddressId,
                 pieceCount: pieceCount, // FIX: Use the variable, not hardcoded 1
                 status: "SENT_TO_ARAS",
+                trackingNumber: trackingNumber, // Save if found
                 items: {
                     create: items.map((i: any) => ({
                         lineItemId: i.id,
@@ -248,6 +258,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 }).filter(Boolean);
 
                 if (fulfillmentOrderLineItems.length > 0) {
+                    // Only include tracking info if we have a REAL tracking number
+                    // If trackingNumber found: use it.
+                    // If not: pass nothing (undefined/null) to leave it "Fulfilled" but "No Tracking"
+                    // This satisfies "mök işlemeyecek" (Don't use MOK as tracking)
+                    const trackingInfo = trackingNumber ? {
+                        company: "Aras Kargo",
+                        number: trackingNumber,
+                        url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${trackingNumber}`
+                    } : undefined;
+
                     await admin.graphql(
                         `#graphql
                         mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
@@ -269,6 +289,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                                         fulfillmentOrderId: fulfillmentOrder.id,
                                         fulfillmentOrderLineItems: fulfillmentOrderLineItems
                                     }],
+                                    trackingInfo: trackingInfo,
                                     notifyCustomer: true
                                 }
                             }
