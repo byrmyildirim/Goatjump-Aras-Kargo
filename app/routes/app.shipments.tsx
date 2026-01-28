@@ -329,6 +329,117 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
     }
 
+    // Helper for updating a single shipment (DB + Shopify)
+    const updateShipmentAndShopify = async (shipment: any, trackingNumber: string, admin: any) => {
+        // 1. Update DB
+        await prisma.shipment.update({
+            where: { id: shipment.id },
+            data: {
+                trackingNumber: trackingNumber,
+                status: "IN_TRANSIT"
+            }
+        });
+
+        // 2. Update Shopify Fulfillment
+        try {
+            const fulfillmentQuery = await admin.graphql(
+                `#graphql
+                query getFulfillmentId($id: ID!) {
+                    order(id: $id) {
+                        fulfillments {
+                            id
+                            status
+                            trackingInfo {
+                                number
+                                company
+                            }
+                            fulfillmentLineItems(first: 50) {
+                                edges {
+                                    node {
+                                        id
+                                        lineItem {
+                                            id
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }`,
+                { variables: { id: `gid://shopify/Order/${shipment.orderId}` } }
+            );
+
+            const fData = await fulfillmentQuery.json();
+            const fulfillments = fData.data?.order?.fulfillments || [];
+
+            // Fetch shipment items from DB to match
+            const shipmentItems = await prisma.shipmentItem.findMany({
+                where: { shipmentId: shipment.id }
+            });
+
+            // Find the fulfillment that contains the items in this shipment
+            let targetFulfillment = fulfillments.find((f: any) => {
+                // Check if this fulfillment contains ALL items from the shipment
+                // (Or at least overlap, but ideally it should be the one covering these items)
+                const fInfos = f.fulfillmentLineItems.edges.map((e: any) => e.node.lineItem.id);
+
+                // Check intersection
+                const hasItems = shipmentItems.some(sItem =>
+                    fInfos.includes(sItem.lineItemId) || fInfos.includes(`gid://shopify/LineItem/${sItem.lineItemId}`)
+                );
+
+                return hasItems;
+            });
+
+            // Fallback: If strict item match failed, try tracking number match (MOK)
+            if (!targetFulfillment && shipment.mok) {
+                targetFulfillment = fulfillments.find((f: any) =>
+                    f.trackingInfo?.some((t: any) => t.number === shipment.mok)
+                );
+            }
+
+            // Fallback 2: If we have simple single fulfillment order
+            if (!targetFulfillment && fulfillments.length === 1) {
+                targetFulfillment = fulfillments[0];
+            }
+
+            if (targetFulfillment) {
+                await admin.graphql(
+                    `#graphql
+                    mutation fulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInfoInput!) {
+                        fulfillmentTrackingInfoUpdateV2(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput) {
+                            fulfillment {
+                                id
+                                status
+                                trackingInfo {
+                                    number
+                                }
+                            }
+                            userErrors {
+                                field
+                                message
+                            }
+                        }
+                    }`,
+                    {
+                        variables: {
+                            fulfillmentId: targetFulfillment.id,
+                            trackingInfoInput: {
+                                company: "Aras Kargo",
+                                number: trackingNumber,
+                                url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${trackingNumber}`
+                            }
+                        }
+                    }
+                );
+            }
+        } catch (err) {
+            console.error("Shopify Sync Error:", err);
+            return { success: false, message: "Shopify güncellenirken hata oluştu ancak DB güncellendi." };
+        }
+        return { success: true, trackingNumber: trackingNumber };
+    };
+
     // Helper for updating a single shipment
     const checkAndUpdateShipment = async (shipment: any, settings: any, admin: any) => {
         if (!shipment.mok) return { success: false, message: "MÖK yok" };
@@ -336,115 +447,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const result = await getShipmentStatus(shipment.mok, settings);
 
         if (result.success && result.trackingNumber) {
-            // 1. Update DB
-            await prisma.shipment.update({
-                where: { id: shipment.id },
-                data: {
-                    trackingNumber: result.trackingNumber,
-                    status: "IN_TRANSIT"
-                }
-            });
-
-            // 2. Update Shopify Fulfillment
-            try {
-                const fulfillmentQuery = await admin.graphql(
-                    `#graphql
-                    query getFulfillmentId($id: ID!) {
-                        order(id: $id) {
-                            fulfillments {
-                                id
-                                status
-                                trackingInfo {
-                                    number
-                                    company
-                                }
-                                fulfillmentLineItems(first: 50) {
-                                    edges {
-                                        node {
-                                            id
-                                            lineItem {
-                                                id
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }`,
-                    { variables: { id: `gid://shopify/Order/${shipment.orderId}` } }
-                );
-
-                const fData = await fulfillmentQuery.json();
-                const fulfillments = fData.data?.order?.fulfillments || [];
-
-                // Fetch shipment items from DB to match
-                const shipmentItems = await prisma.shipmentItem.findMany({
-                    where: { shipmentId: shipment.id }
-                });
-
-                // Find the fulfillment that contains the items in this shipment
-                let targetFulfillment = fulfillments.find((f: any) => {
-                    // Check if this fulfillment contains ALL items from the shipment
-                    // (Or at least overlap, but ideally it should be the one covering these items)
-                    const fInfos = f.fulfillmentLineItems.edges.map((e: any) => e.node.lineItem.id);
-
-                    // Check intersection
-                    const hasItems = shipmentItems.some(sItem =>
-                        fInfos.includes(sItem.lineItemId) || fInfos.includes(`gid://shopify/LineItem/${sItem.lineItemId}`)
-                    );
-
-                    return hasItems;
-                });
-
-                // Fallback: If strict item match failed, try tracking number match (MOK)
-                if (!targetFulfillment) {
-                    targetFulfillment = fulfillments.find((f: any) =>
-                        f.trackingInfo?.some((t: any) => t.number === shipment.mok)
-                    );
-                }
-
-                // Fallback 2: If we have simple single fulfillment order
-                if (!targetFulfillment && fulfillments.length === 1) {
-                    targetFulfillment = fulfillments[0];
-                }
-
-                if (targetFulfillment) {
-                    await admin.graphql(
-                        `#graphql
-                        mutation fulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInfoInput!) {
-                            fulfillmentTrackingInfoUpdateV2(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput) {
-                                fulfillment {
-                                    id
-                                    status
-                                    trackingInfo {
-                                        number
-                                    }
-                                }
-                                userErrors {
-                                    field
-                                    message
-                                }
-                            }
-                        }`,
-                        {
-                            variables: {
-                                fulfillmentId: targetFulfillment.id,
-                                trackingInfoInput: {
-                                    company: "Aras Kargo",
-                                    number: result.trackingNumber,
-                                    url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${result.trackingNumber}`
-                                }
-                            }
-                        }
-                    );
-                }
-            } catch (err) {
-                console.error("Shopify Sync Error:", err);
-            }
-            return { success: true, trackingNumber: result.trackingNumber };
+            return await updateShipmentAndShopify(shipment, result.trackingNumber, admin);
         }
         return { success: false, message: result.message };
     };
+
+    if (intent === "manualUpdateTracking") {
+        const shipmentId = formData.get("shipmentId") as string;
+        const trackingNumber = formData.get("trackingNumber") as string;
+
+        if (!trackingNumber) return json({ status: "error", message: "Takip numarası girilmedi." });
+
+        const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
+        if (!shipment) return json({ status: "error", message: "Gönderi bulunamadı." });
+
+        const result = await updateShipmentAndShopify(shipment, trackingNumber, admin);
+        if (result.success) {
+            return json({ status: "success", message: `Takip no kaydedildi: ${result.trackingNumber}` });
+        } else {
+            return json({ status: "error", message: result.message || "Bir hata oluştu." });
+        }
+    }
 
     if (intent === "updateStatus") {
         const shipmentId = formData.get("shipmentId") as string;
@@ -518,6 +541,9 @@ export default function Shipments() {
     const [pieceCount, setPieceCount] = useState<number>(1);
 
     // Extract order ID from GID for navigation
+    const [selectedManualShipment, setSelectedManualShipment] = useState<any | null>(null);
+    const [manualTrackingNo, setManualTrackingNo] = useState("");
+
     const handleOrderClick = (order: any) => {
         // Extract numeric ID from gid://shopify/Order/12345 format
         const orderId = order.id.split('/').pop();
@@ -688,6 +714,17 @@ export default function Shipments() {
                                                         Takip No Çek
                                                     </Button>
                                                 )}
+                                                {!shipment.trackingNumber && (
+                                                    <Button
+                                                        size="micro"
+                                                        onClick={() => {
+                                                            setSelectedManualShipment(shipment);
+                                                            setManualTrackingNo("");
+                                                        }}
+                                                    >
+                                                        Manuel No
+                                                    </Button>
+                                                )}
                                                 <Button
                                                     size="micro"
                                                     tone="critical"
@@ -787,6 +824,39 @@ export default function Shipments() {
                                     )
                                 })}
                             </BlockStack>
+                        </Modal.Section>
+                    </Modal>
+                )
+            }
+
+            {/* Manual Tracking Modal */}
+            {
+                selectedManualShipment && (
+                    <Modal
+                        open={!!selectedManualShipment}
+                        onClose={() => setSelectedManualShipment(null)}
+                        title={`Manuel Takip No Gir`}
+                        primaryAction={{
+                            content: 'Kaydet',
+                            onAction: () => {
+                                const form = new FormData();
+                                form.append("intent", "manualUpdateTracking");
+                                form.append("shipmentId", selectedManualShipment.id);
+                                form.append("trackingNumber", manualTrackingNo);
+                                fetcher.submit(form, { method: "POST" });
+                                setSelectedManualShipment(null);
+                            },
+                        }}
+                        secondaryActions={[{ content: 'İptal', onAction: () => setSelectedManualShipment(null) }]}
+                    >
+                        <Modal.Section>
+                            <TextField
+                                label="Takip Numarası"
+                                value={manualTrackingNo}
+                                onChange={setManualTrackingNo}
+                                autoComplete="off"
+                                placeholder="Örn: 1234567890"
+                            />
                         </Modal.Section>
                     </Modal>
                 )
