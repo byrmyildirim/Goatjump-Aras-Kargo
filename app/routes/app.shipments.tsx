@@ -635,7 +635,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return { success: true, trackingNumber: trackingNumber };
     };
 
-    const updateShopifyOrderToDelivered = async (orderId: string, admin: any, session: any) => {
+    const updateShopifyOrderToDelivered = async (orderId: string, admin: any, session: any, shipmentTrackingNumber?: string) => {
         try {
             console.log(`[Shopify Sync] Updating order ${orderId} status to DELIVERED...`);
 
@@ -647,6 +647,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                         fulfillments {
                             id
                             status
+                            trackingInfo {
+                                number
+                            }
                         }
                     }
                 }
@@ -663,7 +666,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             }
 
             // Find valid fulfillment (not cancelled)
-            const fulfillment = fulfillments.find((f: any) => f.status !== 'CANCELLED');
+            // Default to first active fulfillment
+            let fulfillment = fulfillments.find((f: any) => f.status !== 'CANCELLED');
+
+            // If we have a tracking number, try to find the specific matching fulfillment
+            if (shipmentTrackingNumber) {
+                const matchingFulfillment = fulfillments.find((f: any) =>
+                    f.status !== 'CANCELLED' &&
+                    f.trackingInfo &&
+                    f.trackingInfo.some((t: any) => t.number === shipmentTrackingNumber)
+                );
+
+                if (matchingFulfillment) {
+                    fulfillment = matchingFulfillment;
+                    console.log(`[Shopify Sync] Found matching fulfillment by tracking number: ${shipmentTrackingNumber}`);
+                }
+            }
+
             if (!fulfillment) {
                 console.log(`[Shopify Sync] No active fulfillment found for order ${orderId}`);
                 return;
@@ -800,17 +819,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const result = await getDeliveryStatus(shipment.mok, settings, 1);
 
         if (result.success) {
-            // Update shipment status in DB
+            // Update shipment status in DB and tracking number if found
             const newStatus = result.status === 'DELIVERED' ? 'DELIVERED' : (result.status === 'IN_TRANSIT' ? 'IN_TRANSIT' : shipment.status);
+
+            // If tracking number came from API response (via MOK), save it
+            const trackingNumberToUse = result.trackingNumber || shipment.trackingNumber;
+
+            const updateData: any = { status: newStatus };
+            if (result.trackingNumber && !shipment.trackingNumber) {
+                updateData.trackingNumber = result.trackingNumber;
+            }
 
             await prisma.shipment.update({
                 where: { id: shipmentId },
-                data: { status: newStatus }
+                data: updateData
             });
 
             // If delivered, update Shopify fulfillment status
             if (result.status === 'DELIVERED' && shipment.orderId) {
-                await updateShopifyOrderToDelivered(shipment.orderId, admin, session);
+                await updateShopifyOrderToDelivered(shipment.orderId, admin, session, trackingNumberToUse || undefined);
             }
 
             const statusLabel = result.status === 'DELIVERED' ? 'Teslim Edildi' :
@@ -856,15 +883,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 const newStatus = result.status === 'DELIVERED' ? 'DELIVERED' :
                     result.status === 'IN_TRANSIT' ? 'IN_TRANSIT' : shipment.status;
 
-                if (newStatus !== shipment.status) {
+                // Track if we need to update things other than status
+                const trackingNumberFromApi = (result as any).trackingNumber;
+
+                // If tracking number came from API response (via MOK), save it if we don't have it
+                const trackingNumberToUse = trackingNumberFromApi || shipment.trackingNumber;
+
+                // Check if status changed OR if we found a tracking number where we didn't have one
+                const shouldUpdate = newStatus !== shipment.status || (trackingNumberFromApi && !shipment.trackingNumber);
+
+                if (shouldUpdate) {
+
+                    const updateData: any = { status: newStatus };
+                    if (trackingNumberFromApi && !shipment.trackingNumber) {
+                        updateData.trackingNumber = trackingNumberFromApi;
+                    }
+
                     await prisma.shipment.update({
                         where: { id: shipment.id },
-                        data: { status: newStatus }
+                        data: updateData
                     });
 
                     // If delivered, update Shopify fulfillment status
                     if (newStatus === 'DELIVERED' && shipment.orderId) {
-                        await updateShopifyOrderToDelivered(shipment.orderId, admin, session);
+                        await updateShopifyOrderToDelivered(shipment.orderId, admin, session, trackingNumberToUse || undefined);
                     }
 
                     if (result.status === 'DELIVERED') deliveredCount++;

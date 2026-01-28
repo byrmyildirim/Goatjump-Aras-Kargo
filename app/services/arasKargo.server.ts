@@ -483,7 +483,7 @@ export const getDeliveryStatus = async (
     queryValue: string, // MOK or Tracking Number
     settings: ArasKargoSettings,
     queryType: number = 1 // 1: MOK (Integration Code), 2: Tracking Number
-): Promise<{ success: boolean; status: 'PENDING' | 'IN_TRANSIT' | 'DELIVERED' | 'UNKNOWN'; message: string; rawResponse?: string }> => {
+): Promise<{ success: boolean; status: 'PENDING' | 'IN_TRANSIT' | 'DELIVERED' | 'UNKNOWN'; message: string; rawResponse?: string; trackingNumber?: string }> => {
     if (!settings.queryUsername || !settings.queryPassword || !settings.queryCustomerCode) {
         return { success: false, status: 'UNKNOWN', message: 'Ayarlar eksik.' };
     }
@@ -537,6 +537,11 @@ export const getDeliveryStatus = async (
             console.log('[getDeliveryStatus] DURUM_KODU found via Regex:', durumKoduNum);
         }
 
+        // Extract Tracking Number (KARGO_TAKIP_NO)
+        const trackingNumberRegex = /(?:<|&lt;)KARGO_TAKIP_NO(?:>|&gt;)(\d+)(?:<|&lt;)\/KARGO_TAKIP_NO(?:>|&gt;)/i;
+        const trackingNumberMatch = responseText.match(trackingNumberRegex);
+        const extractedTrackingNumber = trackingNumberMatch ? trackingNumberMatch[1] : undefined;
+
         // Also check for delivery date as confirmation
         const deliveryDateRegex = /(?:<|&lt;)(?:TESLIM_TARIHI|TESLIM_ZAMANI|DeliveryDate)(?:>|&gt;)([^<&]+)(?:<|&lt;)/i;
         const deliveryDateMatch = responseText.match(deliveryDateRegex);
@@ -549,7 +554,8 @@ export const getDeliveryStatus = async (
                 success: true,
                 status: 'DELIVERED',
                 message: `Kargo teslim edildi (DURUM_KODU=${durumKoduNum})`,
-                rawResponse: responseText.substring(0, 2000)
+                rawResponse: responseText.substring(0, 2000),
+                trackingNumber: extractedTrackingNumber
             };
         }
 
@@ -558,7 +564,8 @@ export const getDeliveryStatus = async (
                 success: true,
                 status: 'DELIVERED',
                 message: `Kargo teslim edildi (Teslim Tarihi: ${deliveryDateMatch?.[1]})`,
-                rawResponse: responseText.substring(0, 2000)
+                rawResponse: responseText.substring(0, 2000),
+                trackingNumber: extractedTrackingNumber
             };
         }
 
@@ -568,7 +575,8 @@ export const getDeliveryStatus = async (
                 success: true,
                 status: 'DELIVERED',
                 message: `Kargo teslim edildi (Metin Kontrolü)`,
-                rawResponse: responseText.substring(0, 2000)
+                rawResponse: responseText.substring(0, 2000),
+                trackingNumber: extractedTrackingNumber
             };
         }
 
@@ -578,7 +586,8 @@ export const getDeliveryStatus = async (
                 success: true,
                 status: 'IN_TRANSIT',
                 message: `Kargo yolda/işlemde (DURUM_KODU=${durumKoduNum})`,
-                rawResponse: responseText.substring(0, 2000)
+                rawResponse: responseText.substring(0, 2000),
+                trackingNumber: extractedTrackingNumber
             };
         }
 
@@ -588,7 +597,8 @@ export const getDeliveryStatus = async (
                 success: true,
                 status: 'IN_TRANSIT',
                 message: 'Kargo bilgisi alındı',
-                rawResponse: responseText.substring(0, 2000)
+                rawResponse: responseText.substring(0, 2000),
+                trackingNumber: extractedTrackingNumber
             };
         }
 
