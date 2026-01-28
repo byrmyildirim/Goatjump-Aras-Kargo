@@ -430,7 +430,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                             trackingInfoInput: {
                                 company: "Aras Kargo",
                                 number: trackingNumber,
-                                url: `https://www.araskargo.com.tr/t?q=${trackingNumber}`
+                                url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${trackingNumber}`
                             },
                             notifyCustomer: true
                         }
