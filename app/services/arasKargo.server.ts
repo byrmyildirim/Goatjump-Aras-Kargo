@@ -469,6 +469,11 @@ export const getTrackingNumberByQueryService = async (
 /**
  * Get delivery status from Aras Kargo API
  * Returns status: 'PENDING' | 'IN_TRANSIT' | 'DELIVERED' | 'UNKNOWN'
+ * 
+ * Aras Kargo DURUM_KODU values (from documentation page 9):
+ * 1 = Teslim Edildi (Delivered)
+ * 9 = Şubede (At Branch - ready for delivery)
+ * Other values = In Transit / Processing
  */
 export const getDeliveryStatus = async (
     trackingNumber: string,
@@ -482,7 +487,7 @@ export const getDeliveryStatus = async (
 
     const loginInfoString = `<LoginInfo><UserName>${settings.queryUsername}</UserName><Password>${settings.queryPassword}</Password><CustomerCode>${settings.queryCustomerCode}</CustomerCode></LoginInfo>`;
 
-    // QueryType 2 = Query by Tracking Number (Kargo Takip Numarası)
+    // QueryType 2 = Query by Tracking Number (Kargo Takip Numarası ile sorgulama)
     const queryInfoString = `<QueryInfo><QueryType>2</QueryType><TrackingNumber>${trackingNumber}</TrackingNumber></QueryInfo>`;
 
     const soapEnvelope = `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
@@ -506,6 +511,7 @@ export const getDeliveryStatus = async (
         });
 
         const responseText = await response.text();
+        console.log('[getDeliveryStatus] Raw Response for tracking:', trackingNumber, responseText.substring(0, 500));
 
         // Parse Response
         const match = responseText.match(/<GetQueryJSONResult>(.*?)<\/GetQueryJSONResult>/);
@@ -514,78 +520,84 @@ export const getDeliveryStatus = async (
         if (jsonResultString) {
             try {
                 const jsonResult = JSON.parse(jsonResultString);
+                console.log('[getDeliveryStatus] Parsed JSON:', JSON.stringify(jsonResult, null, 2));
 
                 let foundItem: any = null;
                 if (Array.isArray(jsonResult) && jsonResult.length > 0) {
-                    foundItem = jsonResult[0];
+                    // Get the latest item (usually last in array has most recent status)
+                    foundItem = jsonResult[jsonResult.length - 1];
                 } else if (typeof jsonResult === 'object') {
                     foundItem = jsonResult;
                 }
 
                 if (foundItem) {
-                    // Check for delivery status fields
-                    // Common field names: DURUM, Status, DeliveryStatus, HAREKET_DURUMU
-                    const statusFields = ['DURUM', 'Status', 'DeliveryStatus', 'HAREKET_DURUMU', 'KARGO_DURUMU', 'TESLIMAT_DURUMU'];
-                    let statusValue = '';
+                    // Check DURUM_KODU field (primary status indicator from Aras Kargo)
+                    // According to documentation:
+                    // DURUM_KODU = 1 -> Teslim Edildi (Delivered)
+                    // DURUM_KODU = 9 -> Şubede (At Branch)
+                    // Other values -> In Transit
 
-                    for (const field of statusFields) {
-                        if (foundItem[field]) {
-                            statusValue = String(foundItem[field]).toUpperCase();
-                            break;
-                        }
-                    }
+                    const durumKodu = foundItem['DURUM_KODU'] || foundItem['DurumKodu'] || foundItem['durumKodu'] || foundItem['StatusCode'];
+                    const durumKoduNum = parseInt(String(durumKodu), 10);
 
-                    // Check for delivery date which indicates delivered
-                    const deliveryFields = ['TESLIM_TARIHI', 'TeslimTarihi', 'DeliveryDate'];
-                    let hasDeliveryDate = false;
-                    for (const field of deliveryFields) {
-                        if (foundItem[field] && foundItem[field] !== '' && foundItem[field] !== null) {
-                            hasDeliveryDate = true;
-                            break;
-                        }
-                    }
+                    console.log('[getDeliveryStatus] DURUM_KODU:', durumKodu, 'Parsed:', durumKoduNum);
 
-                    // Determine status based on data
-                    if (hasDeliveryDate ||
-                        statusValue.includes('TESLİM') ||
-                        statusValue.includes('TESLIM') ||
-                        statusValue.includes('DELIVERED')) {
+                    // Check for delivery indicators
+                    // DURUM_KODU = 1 means delivered
+                    if (durumKoduNum === 1) {
                         return {
                             success: true,
                             status: 'DELIVERED',
-                            message: 'Kargo teslim edildi',
+                            message: 'Kargo teslim edildi (DURUM_KODU=1)',
                             rawResponse: JSON.stringify(foundItem, null, 2)
                         };
                     }
 
-                    if (statusValue.includes('DAĞITIMDA') ||
-                        statusValue.includes('DAGITIMDA') ||
-                        statusValue.includes('TRANSFER') ||
-                        statusValue.includes('ŞUBE') ||
-                        statusValue.includes('SUBE') ||
-                        statusValue.includes('YOLDA') ||
-                        statusValue.includes('TRANSIT') ||
-                        statusValue.includes('IN TRANSIT')) {
+                    // Check for text-based status in other fields
+                    const allValues = Object.values(foundItem).map(v => String(v).toUpperCase());
+                    const hasDeliveredText = allValues.some(v =>
+                        v.includes('TESLİM EDİLDİ') ||
+                        v.includes('TESLIM EDILDI') ||
+                        v.includes('TESLİM') ||
+                        v.includes('DELIVERED')
+                    );
+
+                    if (hasDeliveredText) {
                         return {
                             success: true,
-                            status: 'IN_TRANSIT',
-                            message: 'Kargo kargoda/yolda',
+                            status: 'DELIVERED',
+                            message: 'Kargo teslim edildi (metin kontrolü)',
                             rawResponse: JSON.stringify(foundItem, null, 2)
                         };
                     }
 
-                    // If we have any data but can't determine status, assume in transit
+                    // Check for delivery date fields
+                    const deliveryDateFields = ['TESLIM_TARIHI', 'TeslimTarihi', 'DeliveryDate', 'TESLIM_ZAMANI'];
+                    for (const field of deliveryDateFields) {
+                        const val = foundItem[field];
+                        if (val && val !== '' && val !== null && val !== '0' && val !== 'null') {
+                            return {
+                                success: true,
+                                status: 'DELIVERED',
+                                message: `Kargo teslim edildi (${field} mevcut)`,
+                                rawResponse: JSON.stringify(foundItem, null, 2)
+                            };
+                        }
+                    }
+
+                    // If we have any data, it's in transit
                     if (Object.keys(foundItem).length > 0) {
                         return {
                             success: true,
                             status: 'IN_TRANSIT',
-                            message: 'Kargo bilgisi alındı (durum belirsiz - kargoda varsayıldı)',
+                            message: `Kargo kargoda (DURUM_KODU=${durumKodu || 'yok'})`,
                             rawResponse: JSON.stringify(foundItem, null, 2)
                         };
                     }
                 }
 
             } catch (e) {
+                console.error('[getDeliveryStatus] JSON parse error:', e);
                 return {
                     success: false,
                     status: 'UNKNOWN',
@@ -603,6 +615,7 @@ export const getDeliveryStatus = async (
         };
 
     } catch (error) {
+        console.error('[getDeliveryStatus] Service error:', error);
         return {
             success: false,
             status: 'UNKNOWN',
@@ -610,3 +623,4 @@ export const getDeliveryStatus = async (
         };
     }
 };
+
