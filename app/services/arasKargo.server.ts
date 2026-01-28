@@ -465,3 +465,148 @@ export const getTrackingNumberByQueryService = async (
 };
 
 // function escapeXml removed because it is already defined at line 63
+
+/**
+ * Get delivery status from Aras Kargo API
+ * Returns status: 'PENDING' | 'IN_TRANSIT' | 'DELIVERED' | 'UNKNOWN'
+ */
+export const getDeliveryStatus = async (
+    trackingNumber: string,
+    settings: ArasKargoSettings
+): Promise<{ success: boolean; status: 'PENDING' | 'IN_TRANSIT' | 'DELIVERED' | 'UNKNOWN'; message: string; rawResponse?: string }> => {
+    if (!settings.queryUsername || !settings.queryPassword || !settings.queryCustomerCode) {
+        return { success: false, status: 'UNKNOWN', message: 'Ayarlar eksik.' };
+    }
+
+    const url = 'https://customerservices.araskargo.com.tr/ArasCargoCustomerIntegrationService/ArasCargoIntegrationService.svc';
+
+    const loginInfoString = `<LoginInfo><UserName>${settings.queryUsername}</UserName><Password>${settings.queryPassword}</Password><CustomerCode>${settings.queryCustomerCode}</CustomerCode></LoginInfo>`;
+
+    // QueryType 2 = Query by Tracking Number (Kargo Takip Numarası)
+    const queryInfoString = `<QueryInfo><QueryType>2</QueryType><TrackingNumber>${trackingNumber}</TrackingNumber></QueryInfo>`;
+
+    const soapEnvelope = `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tem="http://tempuri.org/">
+       <soapenv:Header/>
+       <soapenv:Body>
+          <tem:GetQueryJSON>
+             <tem:loginInfo><![CDATA[${loginInfoString}]]></tem:loginInfo>
+             <tem:queryInfo><![CDATA[${queryInfoString}]]></tem:queryInfo>
+          </tem:GetQueryJSON>
+       </soapenv:Body>
+    </soapenv:Envelope>`;
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'http://tempuri.org/IArasCargoIntegrationService/GetQueryJSON'
+            },
+            body: soapEnvelope
+        });
+
+        const responseText = await response.text();
+
+        // Parse Response
+        const match = responseText.match(/<GetQueryJSONResult>(.*?)<\/GetQueryJSONResult>/);
+        const jsonResultString = match ? match[1] : null;
+
+        if (jsonResultString) {
+            try {
+                const jsonResult = JSON.parse(jsonResultString);
+
+                let foundItem: any = null;
+                if (Array.isArray(jsonResult) && jsonResult.length > 0) {
+                    foundItem = jsonResult[0];
+                } else if (typeof jsonResult === 'object') {
+                    foundItem = jsonResult;
+                }
+
+                if (foundItem) {
+                    // Check for delivery status fields
+                    // Common field names: DURUM, Status, DeliveryStatus, HAREKET_DURUMU
+                    const statusFields = ['DURUM', 'Status', 'DeliveryStatus', 'HAREKET_DURUMU', 'KARGO_DURUMU', 'TESLIMAT_DURUMU'];
+                    let statusValue = '';
+
+                    for (const field of statusFields) {
+                        if (foundItem[field]) {
+                            statusValue = String(foundItem[field]).toUpperCase();
+                            break;
+                        }
+                    }
+
+                    // Check for delivery date which indicates delivered
+                    const deliveryFields = ['TESLIM_TARIHI', 'TeslimTarihi', 'DeliveryDate'];
+                    let hasDeliveryDate = false;
+                    for (const field of deliveryFields) {
+                        if (foundItem[field] && foundItem[field] !== '' && foundItem[field] !== null) {
+                            hasDeliveryDate = true;
+                            break;
+                        }
+                    }
+
+                    // Determine status based on data
+                    if (hasDeliveryDate ||
+                        statusValue.includes('TESLİM') ||
+                        statusValue.includes('TESLIM') ||
+                        statusValue.includes('DELIVERED')) {
+                        return {
+                            success: true,
+                            status: 'DELIVERED',
+                            message: 'Kargo teslim edildi',
+                            rawResponse: JSON.stringify(foundItem, null, 2)
+                        };
+                    }
+
+                    if (statusValue.includes('DAĞITIMDA') ||
+                        statusValue.includes('DAGITIMDA') ||
+                        statusValue.includes('TRANSFER') ||
+                        statusValue.includes('ŞUBE') ||
+                        statusValue.includes('SUBE') ||
+                        statusValue.includes('YOLDA') ||
+                        statusValue.includes('TRANSIT') ||
+                        statusValue.includes('IN TRANSIT')) {
+                        return {
+                            success: true,
+                            status: 'IN_TRANSIT',
+                            message: 'Kargo kargoda/yolda',
+                            rawResponse: JSON.stringify(foundItem, null, 2)
+                        };
+                    }
+
+                    // If we have any data but can't determine status, assume in transit
+                    if (Object.keys(foundItem).length > 0) {
+                        return {
+                            success: true,
+                            status: 'IN_TRANSIT',
+                            message: 'Kargo bilgisi alındı (durum belirsiz - kargoda varsayıldı)',
+                            rawResponse: JSON.stringify(foundItem, null, 2)
+                        };
+                    }
+                }
+
+            } catch (e) {
+                return {
+                    success: false,
+                    status: 'UNKNOWN',
+                    message: 'JSON parse hatası',
+                    rawResponse: jsonResultString
+                };
+            }
+        }
+
+        return {
+            success: false,
+            status: 'UNKNOWN',
+            message: 'Kargo durumu alınamadı',
+            rawResponse: responseText
+        };
+
+    } catch (error) {
+        return {
+            success: false,
+            status: 'UNKNOWN',
+            message: 'Servis hatası: ' + (error as Error).message
+        };
+    }
+};

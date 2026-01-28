@@ -53,10 +53,6 @@
 }
 
 /* ============== Base Styles ============== */
-body {
-  background-color: var(--gj-surface) !important;
-}
-
 /* Override link colors to use gray instead of blue */
 a {
   color: var(--gj-text);

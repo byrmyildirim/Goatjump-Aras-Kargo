@@ -21,7 +21,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { sendPackageToAras, getShipmentStatus, getBarcode } from "../services/arasKargo.server";
+import { sendPackageToAras, getShipmentStatus, getBarcode, getDeliveryStatus } from "../services/arasKargo.server";
 import { useState, useEffect } from "react";
 
 // Cargo companies list with tracking URL patterns
@@ -723,6 +723,127 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
     }
 
+    // Check delivery status for shipments with tracking number
+    if (intent === "checkDeliveryStatus") {
+        const shipmentId = formData.get("shipmentId") as string;
+        const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
+
+        if (!shipment) {
+            return json({ status: "error", message: "Gönderi bulunamadı." });
+        }
+
+        if (!shipment.trackingNumber) {
+            return json({ status: "error", message: "Takip numarası yok, önce takip no çekin." });
+        }
+
+        const settings = await prisma.arasKargoSettings.findFirst();
+        if (!settings) {
+            return json({ status: "error", message: "Ayarlar bulunamadı." });
+        }
+
+        const result = await getDeliveryStatus(shipment.trackingNumber, settings);
+
+        if (result.success) {
+            // Update shipment status in DB
+            const newStatus = result.status === 'DELIVERED' ? 'DELIVERED' : (result.status === 'IN_TRANSIT' ? 'IN_TRANSIT' : shipment.status);
+
+            await prisma.shipment.update({
+                where: { id: shipmentId },
+                data: { status: newStatus }
+            });
+
+            // If delivered, update Shopify fulfillment status
+            if (result.status === 'DELIVERED' && shipment.orderId) {
+                try {
+                    // Get fulfillments for this order and update status
+                    const fulfillmentQuery = await admin.graphql(`
+                        #graphql
+                        query getFulfillments($id: ID!) {
+                            order(id: $id) {
+                                fulfillments {
+                                    id
+                                    status
+                                }
+                            }
+                        }
+                    `, {
+                        variables: { id: `gid://shopify/Order/${shipment.orderId}` }
+                    });
+
+                    const fulfillmentData = await fulfillmentQuery.json();
+                    const fulfillments = fulfillmentData.data?.order?.fulfillments || [];
+
+                    // Note: Shopify doesn't have a direct "mark as delivered" API for fulfillments
+                    // The fulfillment status tracking is typically handled by the carrier
+                    // But we update our local DB status
+
+                } catch (e) {
+                    console.error("Error checking Shopify fulfillment:", e);
+                }
+            }
+
+            const statusLabel = result.status === 'DELIVERED' ? 'Teslim Edildi' :
+                result.status === 'IN_TRANSIT' ? 'Kargoda' : 'Bilinmiyor';
+            return json({
+                status: "success",
+                message: `Durum: ${statusLabel}`,
+                deliveryStatus: result.status
+            });
+        } else {
+            return json({ status: "error", message: result.message });
+        }
+    }
+
+    // Bulk check delivery status for all shipments with tracking numbers
+    if (intent === "bulkCheckDeliveryStatus") {
+        const settings = await prisma.arasKargoSettings.findFirst();
+        if (!settings) {
+            return json({ status: "error", message: "Ayarlar bulunamadı." });
+        }
+
+        // Find shipments that have tracking number but not yet delivered
+        const shipmentsToCheck = await prisma.shipment.findMany({
+            where: {
+                trackingNumber: { not: null },
+                status: { not: 'DELIVERED' }
+            },
+            take: 20
+        });
+
+        if (shipmentsToCheck.length === 0) {
+            return json({ status: "success", message: "Kontrol edilecek gönderi yok." });
+        }
+
+        let deliveredCount = 0;
+        let inTransitCount = 0;
+
+        for (const shipment of shipmentsToCheck) {
+            if (!shipment.trackingNumber) continue;
+
+            const result = await getDeliveryStatus(shipment.trackingNumber, settings);
+
+            if (result.success) {
+                const newStatus = result.status === 'DELIVERED' ? 'DELIVERED' :
+                    result.status === 'IN_TRANSIT' ? 'IN_TRANSIT' : shipment.status;
+
+                if (newStatus !== shipment.status) {
+                    await prisma.shipment.update({
+                        where: { id: shipment.id },
+                        data: { status: newStatus }
+                    });
+
+                    if (result.status === 'DELIVERED') deliveredCount++;
+                    if (result.status === 'IN_TRANSIT') inTransitCount++;
+                }
+            }
+        }
+
+        return json({
+            status: "success",
+            message: `${deliveredCount} teslim edildi, ${inTransitCount} kargoda olarak güncellendi.`
+        });
+    }
+
     return null;
 };
 
@@ -875,17 +996,31 @@ export default function Shipments() {
                         <div className="gj-card">
                             <div className="gj-card-header">
                                 <h3>Son Gönderiler</h3>
-                                <Button
-                                    size="micro"
-                                    onClick={() => {
-                                        const form = new FormData();
-                                        form.append("intent", "bulkUpdateStatus");
-                                        fetcher.submit(form, { method: "POST" });
-                                    }}
-                                    loading={fetcher.state === 'submitting'}
-                                >
-                                    Tümünü Güncelle
-                                </Button>
+                                <InlineStack gap="200">
+                                    <Button
+                                        size="micro"
+                                        onClick={() => {
+                                            const form = new FormData();
+                                            form.append("intent", "bulkUpdateStatus");
+                                            fetcher.submit(form, { method: "POST" });
+                                        }}
+                                        loading={fetcher.state === 'submitting'}
+                                    >
+                                        Takip No Çek
+                                    </Button>
+                                    <Button
+                                        size="micro"
+                                        tone="success"
+                                        onClick={() => {
+                                            const form = new FormData();
+                                            form.append("intent", "bulkCheckDeliveryStatus");
+                                            fetcher.submit(form, { method: "POST" });
+                                        }}
+                                        loading={fetcher.state === 'submitting'}
+                                    >
+                                        Teslimat Kontrol
+                                    </Button>
+                                </InlineStack>
                             </div>
                             <div className="gj-card-body">
                                 <BlockStack gap="300">
