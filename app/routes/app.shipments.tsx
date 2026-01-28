@@ -337,6 +337,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                                     number
                                     company
                                 }
+                                fulfillmentLineItems(first: 50) {
+                                    edges {
+                                        node {
+                                            id
+                                            lineItem {
+                                                id
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }`,
@@ -346,23 +356,34 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 const fData = await fulfillmentQuery.json();
                 const fulfillments = fData.data?.order?.fulfillments || [];
 
-                // Find the fulfillment to update.
-                // Priority 1: Fulfillment with MOK as tracking number (ideal case)
-                // Priority 2: Fulfillment without any tracking number (fallback)
-                // Priority 3: Any OPEN/SUCCESS fulfillment if only one exists (broadest fallback)
-                let targetFulfillment = fulfillments.find((f: any) =>
-                    f.trackingInfo?.some((t: any) => t.number === shipment.mok)
-                );
+                // Fetch shipment items from DB to match
+                const shipmentItems = await prisma.shipmentItem.findMany({
+                    where: { shipmentId: shipment.id }
+                });
 
+                // Find the fulfillment that contains the items in this shipment
+                let targetFulfillment = fulfillments.find((f: any) => {
+                    // Check if this fulfillment contains ALL items from the shipment
+                    // (Or at least overlap, but ideally it should be the one covering these items)
+                    const fInfos = f.fulfillmentLineItems.edges.map((e: any) => e.node.lineItem.id);
+
+                    // Check intersection
+                    const hasItems = shipmentItems.some(sItem =>
+                        fInfos.includes(sItem.lineItemId) || fInfos.includes(`gid://shopify/LineItem/${sItem.lineItemId}`)
+                    );
+
+                    return hasItems;
+                });
+
+                // Fallback: If strict item match failed, try tracking number match (MOK)
                 if (!targetFulfillment) {
-                    // Fallback: Find one with NO tracking info or "OPEN" status
                     targetFulfillment = fulfillments.find((f: any) =>
-                        !f.trackingInfo || f.trackingInfo.length === 0
+                        f.trackingInfo?.some((t: any) => t.number === shipment.mok)
                     );
                 }
 
+                // Fallback 2: If we have simple single fulfillment order
                 if (!targetFulfillment && fulfillments.length === 1) {
-                    // If there is exactly one fulfillment, assume it is the one.
                     targetFulfillment = fulfillments[0];
                 }
 
