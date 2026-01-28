@@ -409,8 +409,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             if (targetFulfillment) {
                 const mutationResponse = await admin.graphql(
                     `#graphql
-                    mutation fulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInfoInput!, $notifyCustomer: Boolean) {
-                        fulfillmentTrackingInfoUpdateV2(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput, notifyCustomer: $notifyCustomer) {
+                    mutation fulfillmentTrackingInfoUpdate($fulfillmentId: ID!, $trackingInfoInput: FulfillmentTrackingInput!, $notifyCustomer: Boolean) {
+                        fulfillmentTrackingInfoUpdate(fulfillmentId: $fulfillmentId, trackingInfoInput: $trackingInfoInput, notifyCustomer: $notifyCustomer) {
                             fulfillment {
                                 id
                                 status
@@ -438,7 +438,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 );
 
                 const mutationData = await mutationResponse.json();
-                const userErrors = mutationData.data?.fulfillmentTrackingInfoUpdateV2?.userErrors;
+                const userErrors = mutationData.data?.fulfillmentTrackingInfoUpdate?.userErrors;
 
                 if (userErrors && userErrors.length > 0) {
                     const errorMsg = userErrors.map((e: any) => e.message).join(", ");
