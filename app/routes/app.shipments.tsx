@@ -256,104 +256,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             }
         });
 
-        // 3. Create Fulfillment in Shopify for partial fulfillment support
-        try {
-            // First get the fulfillment order for this order
-            const fulfillmentOrdersResponse = await admin.graphql(
-                `#graphql
-                query getFulfillmentOrder($id: ID!) {
-            order(id: $id) {
-                fulfillmentOrders(first: 10) {
-                      edges {
-                        node {
-                            id
-                            status
-                            lineItems(first: 50) {
-                            edges {
-                              node {
-                                        id
-                                lineItem {
-                                            id
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } `,
-                { variables: { id: `gid://shopify/Order/${orderId}` } }
-            );
-
-            const fulfillmentOrdersData = await fulfillmentOrdersResponse.json();
-            const fulfillmentOrders = fulfillmentOrdersData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
-
-            // Find the first OPEN or IN_PROGRESS fulfillment order
-            const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
-                fo.status === 'OPEN' || fo.status === 'IN_PROGRESS' || fo.status === 'SCHEDULED'
-            );
-
-            if (fulfillmentOrder) {
-                // Map items to fulfillment order line items
-                const fulfillmentOrderLineItems = items.map((item: any) => {
-                    const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
-                        edge.node.lineItem.id === item.id || edge.node.lineItem.id === `gid://shopify/LineItem/${item.id}`
-                    );
-                    if (foLineItem) {
-                        return {
-                            id: foLineItem.node.id,
-                            quantity: item.quantity
-                        };
-                    }
-                    return null;
-                }).filter(Boolean);
-
-                if (fulfillmentOrderLineItems.length > 0) {
-                    // Only include tracking info if we have a REAL tracking number
-                    // If trackingNumber found: use it.
-                    // If not: pass nothing (undefined/null) to leave it "Fulfilled" but "No Tracking"
-                    // This satisfies "mök işlemeyecek" (Don't use MOK as tracking)
-                    const trackingInfo = trackingNumber ? {
-                        company: "Aras Kargo",
-                        number: trackingNumber,
-                        url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${trackingNumber}`
-                    } : undefined;
-
-                    await admin.graphql(
-                        `#graphql
-                        mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
-                          fulfillmentCreateV2(fulfillment: $fulfillment) {
-                            fulfillment {
-                              id
-                              status
-                            }
-                            userErrors {
-                              field
-                              message
-                            }
-                          }
-                        }`,
-                        {
-                            variables: {
-                                fulfillment: {
-                                    lineItemsByFulfillmentOrder: [{
-                                        fulfillmentOrderId: fulfillmentOrder.id,
-                                        fulfillmentOrderLineItems: fulfillmentOrderLineItems
-                                    }],
-                                    trackingInfo: trackingInfo,
-                                    notifyCustomer: true
-                                }
-                            }
-                        }
-                    );
-                }
-            }
-
-        } catch (fError) {
-            console.error("Shopify Fulfillment Error (Non-blocking):", fError);
-            // We do not return error here to ensure Aras shipment is recorded as success
-        }
+        // 3. Create Fulfillment Logic has been moved to updateShipmentAndShopify
+        // We now intentionally DO NOT create a fulfillment immediately.
+        // This keeps the Shopify status as "Unfulfilled" until we get a Tracking Number.
+        // This satisfies the user request to show "Hazırlanıyor" (Unfulfilled) instead of "Gönderildi" initially.
+        console.log("Shipment created in DB. Shopify fulfillment delayed until tracking number is available.");
 
         return json({ status: "success", message: result.message });
     }
@@ -380,6 +287,97 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return json({ status: "error", message: result.message });
         }
     }
+
+    const createShopifyFulfillment = async (shipment: any, shipmentItems: any[], trackingNumber: string | null, admin: any) => {
+        try {
+            // 1. Get Fulfillment Order
+            const foQuery = await admin.graphql(`#graphql
+                query getFulfillmentOrder($id: ID!) {
+                  order(id: $id) {
+                    fulfillmentOrders(first: 10) {
+                      edges {
+                        node {
+                          id
+                          status
+                          lineItems(first: 50) {
+                            edges {
+                              node {
+                                id
+                                lineItem { id }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+             `, { variables: { id: `gid://shopify/Order/${shipment.orderId}` } });
+
+            const foData = await foQuery.json();
+            const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
+
+            // Find open fulfillment order
+            const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
+                ['OPEN', 'IN_PROGRESS', 'SCHEDULED'].includes(fo.status)
+            );
+
+            if (!fulfillmentOrder) {
+                return { success: false, message: "Açık Fulfillment Order bulunamadı." };
+            }
+
+            // Map items
+            const fulfillmentOrderLineItems = shipmentItems.map((item: any) => {
+                const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
+                    edge.node.lineItem.id === item.lineItemId || edge.node.lineItem.id === `gid://shopify/LineItem/${item.lineItemId}`
+                );
+                return foLineItem ? { id: foLineItem.node.id, quantity: item.quantity } : null;
+            }).filter(Boolean);
+
+            if (fulfillmentOrderLineItems.length === 0) {
+                return { success: false, message: "Eşleşen ürün bulunamadı." };
+            }
+
+            const trackingInfo = trackingNumber ? {
+                company: "Aras Kargo",
+                number: trackingNumber,
+                url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${trackingNumber}`
+            } : undefined;
+
+            const mutation = await admin.graphql(`#graphql
+                mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
+                  fulfillmentCreateV2(fulfillment: $fulfillment) {
+                    fulfillment { id status }
+                    userErrors { field message }
+                  }
+                }
+             `, {
+                variables: {
+                    fulfillment: {
+                        lineItemsByFulfillmentOrder: [{
+                            fulfillmentOrderId: fulfillmentOrder.id,
+                            fulfillmentOrderLineItems: fulfillmentOrderLineItems
+                        }],
+                        trackingInfo: trackingInfo,
+                        notifyCustomer: true
+                    }
+                }
+            });
+
+            const mData = await mutation.json();
+            const userErrors = mData.data?.fulfillmentCreateV2?.userErrors;
+
+            if (userErrors && userErrors.length > 0) {
+                return { success: false, message: "Shopify Hata: " + userErrors[0].message };
+            }
+
+            return { success: true, message: "Fulfillment created" };
+
+        } catch (e) {
+            console.error("Create Fulfillment Error:", e);
+            return { success: false, message: "Fulfillment hatası: " + (e as Error).message };
+        }
+    };
 
     // Helper for updating a single shipment (DB + Shopify)
     const updateShipmentAndShopify = async (shipment: any, trackingNumber: string, admin: any) => {
@@ -433,7 +431,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             const activeFulfillments = fulfillments.filter((f: any) => f.status !== 'CANCELLED');
 
             if (activeFulfillments.length === 0) {
-                return { success: false, message: "Shopify'da aktif gönderim bulunamadı. Veritabanı güncellendi." };
+                console.log("No active fulfillment, attempting creation...");
+                return await createShopifyFulfillment(shipment, shipmentItems, trackingNumber, admin);
             }
 
             // Find the fulfillment that contains the items in this shipment
