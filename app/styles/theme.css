@@ -1,0 +1,553 @@
+/* =====================================================
+   GOATJUMP KARGO - Premium Theme
+   ===================================================== */
+
+/* ============== CSS Variables ============== */
+:root {
+  /* Brand Colors */
+  --gj-primary: #1a365d;
+  --gj-primary-light: #2c5282;
+  --gj-primary-dark: #0d1b2a;
+  --gj-accent: #ed8936;
+  --gj-accent-light: #f6ad55;
+  --gj-accent-dark: #dd6b20;
+  
+  /* Status Colors */
+  --gj-success: #38a169;
+  --gj-success-bg: rgba(56, 161, 105, 0.1);
+  --gj-warning: #ecc94b;
+  --gj-warning-bg: rgba(236, 201, 75, 0.1);
+  --gj-info: #3182ce;
+  --gj-info-bg: rgba(49, 130, 206, 0.1);
+  --gj-error: #e53e3e;
+  --gj-error-bg: rgba(229, 62, 62, 0.1);
+  
+  /* Neutral Colors */
+  --gj-surface: #f7fafc;
+  --gj-surface-dark: #edf2f7;
+  --gj-border: #e2e8f0;
+  --gj-text: #2d3748;
+  --gj-text-muted: #718096;
+  
+  /* Shadows */
+  --gj-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --gj-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --gj-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --gj-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  
+  /* Gradients */
+  --gj-gradient-primary: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+  --gj-gradient-accent: linear-gradient(135deg, #ed8936 0%, #f6ad55 100%);
+  --gj-gradient-success: linear-gradient(135deg, #38a169 0%, #48bb78 100%);
+  --gj-gradient-info: linear-gradient(135deg, #3182ce 0%, #4299e1 100%);
+  --gj-gradient-warning: linear-gradient(135deg, #ecc94b 0%, #f6e05e 100%);
+  
+  /* Transitions */
+  --gj-transition: all 0.2s ease-in-out;
+  --gj-transition-slow: all 0.3s ease-in-out;
+  
+  /* Border Radius */
+  --gj-radius: 8px;
+  --gj-radius-lg: 12px;
+  --gj-radius-xl: 16px;
+}
+
+/* ============== Base Styles ============== */
+body {
+  background-color: var(--gj-surface) !important;
+}
+
+/* ============== Stat Cards ============== */
+.gj-stat-card {
+  background: white;
+  border-radius: var(--gj-radius-lg);
+  padding: 24px;
+  box-shadow: var(--gj-shadow);
+  transition: var(--gj-transition);
+  border: 1px solid var(--gj-border);
+  position: relative;
+  overflow: hidden;
+}
+
+.gj-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--gj-shadow-lg);
+}
+
+.gj-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--gj-gradient-primary);
+}
+
+.gj-stat-card.warning::before {
+  background: var(--gj-gradient-warning);
+}
+
+.gj-stat-card.info::before {
+  background: var(--gj-gradient-info);
+}
+
+.gj-stat-card.success::before {
+  background: var(--gj-gradient-success);
+}
+
+.gj-stat-card .stat-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--gj-primary);
+  line-height: 1;
+}
+
+.gj-stat-card .stat-label {
+  font-size: 0.875rem;
+  color: var(--gj-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.gj-stat-card .stat-icon {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  font-size: 2rem;
+  opacity: 0.3;
+}
+
+/* ============== Hero Section ============== */
+.gj-hero {
+  background: var(--gj-gradient-primary);
+  border-radius: var(--gj-radius-xl);
+  padding: 32px;
+  color: white;
+  position: relative;
+  overflow: hidden;
+}
+
+.gj-hero::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 60%;
+  height: 200%;
+  background: rgba(255, 255, 255, 0.05);
+  transform: rotate(30deg);
+}
+
+.gj-hero h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.gj-hero p {
+  opacity: 0.9;
+  margin-bottom: 20px;
+}
+
+/* ============== Status Badges ============== */
+.gj-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.gj-badge.pending {
+  background-color: var(--gj-warning-bg);
+  color: #b7791f;
+}
+
+.gj-badge.in-transit, .gj-badge.sent {
+  background-color: var(--gj-info-bg);
+  color: #2b6cb0;
+}
+
+.gj-badge.delivered {
+  background-color: var(--gj-success-bg);
+  color: #276749;
+}
+
+.gj-badge.error, .gj-badge.cancelled {
+  background-color: var(--gj-error-bg);
+  color: #c53030;
+}
+
+.gj-badge.paid {
+  background-color: var(--gj-success-bg);
+  color: #276749;
+}
+
+.gj-badge.fulfilled {
+  background-color: var(--gj-info-bg);
+  color: #2b6cb0;
+}
+
+.gj-badge.partially-fulfilled {
+  background-color: var(--gj-warning-bg);
+  color: #b7791f;
+}
+
+/* ============== Enhanced Cards ============== */
+.gj-card {
+  background: white;
+  border-radius: var(--gj-radius-lg);
+  box-shadow: var(--gj-shadow);
+  border: 1px solid var(--gj-border);
+  transition: var(--gj-transition);
+}
+
+.gj-card:hover {
+  box-shadow: var(--gj-shadow-lg);
+}
+
+.gj-card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--gj-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gj-card-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gj-text);
+  margin: 0;
+}
+
+.gj-card-body {
+  padding: 20px;
+}
+
+/* ============== Buttons ============== */
+.gj-btn-primary {
+  background: var(--gj-gradient-primary) !important;
+  border: none !important;
+  color: white !important;
+  font-weight: 600;
+  padding: 10px 20px;
+  border-radius: var(--gj-radius);
+  transition: var(--gj-transition);
+  box-shadow: var(--gj-shadow-sm);
+}
+
+.gj-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--gj-shadow);
+}
+
+.gj-btn-accent {
+  background: var(--gj-gradient-accent) !important;
+  border: none !important;
+  color: white !important;
+  font-weight: 600;
+}
+
+/* ============== Table Rows ============== */
+.gj-table-row {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gj-border);
+  transition: var(--gj-transition);
+}
+
+.gj-table-row:hover {
+  background-color: var(--gj-surface);
+}
+
+.gj-table-row:last-child {
+  border-bottom: none;
+}
+
+/* ============== Order Card ============== */
+.gj-order-card {
+  background: white;
+  border-radius: var(--gj-radius-lg);
+  box-shadow: var(--gj-shadow);
+  border: 1px solid var(--gj-border);
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: var(--gj-transition);
+  cursor: pointer;
+}
+
+.gj-order-card:hover {
+  border-color: var(--gj-primary);
+  box-shadow: var(--gj-shadow-lg);
+  transform: translateY(-2px);
+}
+
+.gj-order-card .order-number {
+  font-weight: 700;
+  color: var(--gj-primary);
+  font-size: 1rem;
+}
+
+.gj-order-card .order-date {
+  color: var(--gj-text-muted);
+  font-size: 0.875rem;
+}
+
+.gj-order-card .customer-name {
+  color: var(--gj-text);
+  font-size: 0.875rem;
+}
+
+/* ============== Shipment Card ============== */
+.gj-shipment-card {
+  background: white;
+  border-radius: var(--gj-radius);
+  border: 1px solid var(--gj-border);
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: var(--gj-transition);
+}
+
+.gj-shipment-card:hover {
+  box-shadow: var(--gj-shadow);
+}
+
+.gj-shipment-card .mok-code {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 0.875rem;
+  color: var(--gj-primary);
+  background: var(--gj-surface);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.gj-shipment-card .tracking-link {
+  color: var(--gj-accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.gj-shipment-card .tracking-link:hover {
+  text-decoration: underline;
+}
+
+/* ============== Product Item ============== */
+.gj-product-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gj-border);
+}
+
+.gj-product-item:last-child {
+  border-bottom: none;
+}
+
+.gj-product-item .product-image {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--gj-radius);
+  object-fit: cover;
+  margin-right: 12px;
+  background: var(--gj-surface);
+}
+
+.gj-product-item .product-title {
+  font-weight: 500;
+  color: var(--gj-text);
+}
+
+.gj-product-item .product-sku {
+  font-size: 0.75rem;
+  color: var(--gj-text-muted);
+}
+
+/* ============== Info Box ============== */
+.gj-info-box {
+  background: var(--gj-surface);
+  border-radius: var(--gj-radius);
+  padding: 16px;
+  border-left: 4px solid var(--gj-primary);
+}
+
+.gj-info-box.success {
+  border-left-color: var(--gj-success);
+  background: var(--gj-success-bg);
+}
+
+.gj-info-box.warning {
+  border-left-color: var(--gj-warning);
+  background: var(--gj-warning-bg);
+}
+
+.gj-info-box.info {
+  border-left-color: var(--gj-info);
+  background: var(--gj-info-bg);
+}
+
+/* ============== Feature List ============== */
+.gj-feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.gj-feature-list li {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  color: var(--gj-text);
+}
+
+.gj-feature-list li::before {
+  content: '✓';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: var(--gj-success-bg);
+  color: var(--gj-success);
+  border-radius: 50%;
+  margin-right: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* ============== Quick Start Steps ============== */
+.gj-step {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 0;
+}
+
+.gj-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--gj-gradient-primary);
+  color: white;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.875rem;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.gj-step-content {
+  flex: 1;
+}
+
+/* ============== Recent Activity Table ============== */
+.gj-activity-table {
+  width: 100%;
+}
+
+.gj-activity-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 120px 100px;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gj-border);
+  align-items: center;
+}
+
+.gj-activity-row:last-child {
+  border-bottom: none;
+}
+
+.gj-activity-row .order-num {
+  font-weight: 600;
+  color: var(--gj-primary);
+}
+
+.gj-activity-row .mok {
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--gj-text-muted);
+}
+
+.gj-activity-row .date {
+  color: var(--gj-text-muted);
+  font-size: 0.875rem;
+}
+
+/* ============== Animations ============== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.gj-animate-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* ============== Responsive ============== */
+@media (max-width: 768px) {
+  .gj-stat-card {
+    padding: 16px;
+  }
+  
+  .gj-stat-card .stat-value {
+    font-size: 2rem;
+  }
+  
+  .gj-hero {
+    padding: 24px;
+  }
+  
+  .gj-activity-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ============== Polaris Overrides ============== */
+.Polaris-Page {
+  max-width: 1200px;
+}
+
+.Polaris-Card {
+  border-radius: var(--gj-radius-lg) !important;
+  box-shadow: var(--gj-shadow) !important;
+}
+
+.Polaris-Card:hover {
+  box-shadow: var(--gj-shadow-lg) !important;
+}
+
+.Polaris-Badge--statusSuccess {
+  background-color: var(--gj-success-bg) !important;
+  color: #276749 !important;
+}
+
+.Polaris-Badge--statusWarning {
+  background-color: var(--gj-warning-bg) !important;
+  color: #b7791f !important;
+}
+
+.Polaris-Badge--statusInfo {
+  background-color: var(--gj-info-bg) !important;
+  color: #2b6cb0 !important;
+}
+
+.Polaris-Button--primary {
+  background: var(--gj-gradient-primary) !important;
+  border: none !important;
+}
+
+.Polaris-Button--primary:hover {
+  background: var(--gj-gradient-primary) !important;
+  filter: brightness(1.1);
+}

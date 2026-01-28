@@ -771,15 +771,31 @@ export default function OrderDetail() {
     const shippingAddress = order.shippingAddress;
 
     const getStatusBadge = (status: string | null) => {
-        if (!status) return <Badge>Bilinmiyor</Badge>;
-        const map: Record<string, "success" | "warning" | "info" | "attention"> = {
-            'FULFILLED': 'success',
-            'PARTIALLY_FULFILLED': 'info',
-            'UNFULFILLED': 'warning',
-            'PAID': 'success',
-            'PENDING': 'attention',
+        if (!status) return <span className="gj-badge pending">Bilinmiyor</span>;
+        const map: Record<string, { class: string; label: string }> = {
+            'FULFILLED': { class: 'delivered', label: 'Tamamlandı' },
+            'PARTIALLY_FULFILLED': { class: 'partially-fulfilled', label: 'Kısmi' },
+            'UNFULFILLED': { class: 'pending', label: 'Bekliyor' },
+            'PAID': { class: 'paid', label: 'Ödendi' },
+            'PENDING': { class: 'pending', label: 'Bekliyor' },
+            'IN_TRANSIT': { class: 'in-transit', label: 'Kargoda' },
+            'DELIVERED': { class: 'delivered', label: 'Teslim' },
         };
-        return <Badge tone={map[status] || undefined}>{status}</Badge>;
+        const info = map[status] || { class: 'pending', label: status };
+        return <span className={`gj-badge ${info.class}`}>{info.label}</span>;
+    };
+
+    // Shipment status badge
+    const getShipmentStatusBadge = (status: string) => {
+        const statusMap: Record<string, { class: string; label: string }> = {
+            'PENDING': { class: 'pending', label: 'Bekliyor' },
+            'SENT_TO_ARAS': { class: 'sent', label: 'Hazırlanıyor' },
+            'IN_TRANSIT': { class: 'in-transit', label: 'Kargoda' },
+            'DELIVERED': { class: 'delivered', label: 'Teslim Edildi' },
+            'CANCELLED': { class: 'cancelled', label: 'İptal' },
+        };
+        const info = statusMap[status] || { class: 'pending', label: status };
+        return <span className={`gj-badge ${info.class}`}>{info.label}</span>;
     };
 
     return (
@@ -936,14 +952,23 @@ export default function OrderDetail() {
                                     <Text as="h2" variant="headingMd">Aras Kargo İşlemleri (DB)</Text>
                                     <Divider />
                                     {localShipments.map((shipment: any) => (
-                                        <Box key={shipment.id} padding="300" borderRadius="200" background="bg-surface-secondary">
+                                        <div key={shipment.id} className="gj-shipment-card">
                                             <BlockStack gap="200">
                                                 <InlineStack align="space-between" blockAlign="center">
                                                     <BlockStack gap="100">
-                                                        <Text as="span" fontWeight="bold">MÖK: {shipment.mok}</Text>
-                                                        <Text as="span" variant="bodySm">Durum: {shipment.status}</Text>
+                                                        <Text as="span" fontWeight="bold">
+                                                            <span className="mok-code">{shipment.mok}</span>
+                                                        </Text>
+                                                        {getShipmentStatusBadge(shipment.status)}
                                                         {shipment.trackingNumber && (
-                                                            <Text as="span" variant="bodySm" tone="success">Takip No: {shipment.trackingNumber}</Text>
+                                                            <a
+                                                                href={`http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${shipment.trackingNumber}`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="tracking-link"
+                                                            >
+                                                                Takip: {shipment.trackingNumber}
+                                                            </a>
                                                         )}
                                                     </BlockStack>
 
@@ -964,7 +989,7 @@ export default function OrderDetail() {
                                                     {shipment.items.length} kalem ürün
                                                 </Text>
                                             </BlockStack>
-                                        </Box>
+                                        </div>
                                     ))}
                                 </BlockStack>
                             </Card>

@@ -4,16 +4,14 @@ import { Link as RemixLink, useLoaderData } from "@remix-run/react";
 import {
   Page,
   Layout,
-  Card,
   BlockStack,
   Text,
   Button,
   InlineStack,
-  Icon,
   Divider,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { DeliveryIcon, PackageIcon, ClipboardIcon } from "@shopify/polaris-icons";
+import { DeliveryIcon, PackageIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
@@ -35,6 +33,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return json({ stats: { pendingCount, sentCount, inTransitCount, deliveredCount }, recentShipments });
 };
 
+// Status badge helper
+const getStatusBadge = (status: string) => {
+  const statusMap: Record<string, { class: string; label: string }> = {
+    'PENDING': { class: 'pending', label: 'Bekliyor' },
+    'SENT_TO_ARAS': { class: 'sent', label: 'Hazırlanıyor' },
+    'IN_TRANSIT': { class: 'in-transit', label: 'Kargoda' },
+    'DELIVERED': { class: 'delivered', label: 'Teslim Edildi' },
+    'CANCELLED': { class: 'cancelled', label: 'İptal' },
+  };
+  const info = statusMap[status] || { class: 'pending', label: status };
+  return <span className={`gj-badge ${info.class}`}>{info.label}</span>;
+};
+
 export default function Index() {
   const { stats, recentShipments } = useLoaderData<typeof loader>();
 
@@ -44,118 +55,121 @@ export default function Index() {
       <BlockStack gap="500">
 
         {/* Stats Row */}
-        <Layout>
-          <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="200" align="center">
-                <Text as="h2" variant="headingSm" tone="subdued">Hazırlanıyor (MÖK Alındı)</Text>
-                <Text as="p" variant="heading2xl">{stats.sentCount}</Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-          <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="200" align="center">
-                <Text as="h2" variant="headingSm" tone="subdued">Kargoda</Text>
-                <Text as="p" variant="heading2xl">{stats.inTransitCount}</Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-          <Layout.Section variant="oneThird">
-            <Card>
-              <BlockStack gap="200" align="center">
-                <Text as="h2" variant="headingSm" tone="subdued">Teslim Edildi</Text>
-                <Text as="p" variant="heading2xl">{stats.deliveredCount}</Text>
-              </BlockStack>
-            </Card>
-          </Layout.Section>
-        </Layout>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+          <div className="gj-stat-card warning">
+            <div className="stat-icon">📦</div>
+            <div className="stat-label">Hazırlanıyor (MÖK Alındı)</div>
+            <div className="stat-value">{stats.sentCount}</div>
+          </div>
+          <div className="gj-stat-card info">
+            <div className="stat-icon">🚚</div>
+            <div className="stat-label">Kargoda</div>
+            <div className="stat-value">{stats.inTransitCount}</div>
+          </div>
+          <div className="gj-stat-card success">
+            <div className="stat-icon">✅</div>
+            <div className="stat-label">Teslim Edildi</div>
+            <div className="stat-value">{stats.deliveredCount}</div>
+          </div>
+        </div>
 
         <Layout>
           <Layout.Section>
-            <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingLg">
-                  🚚 Aras Kargo Entegrasyonu
-                </Text>
-                <Text as="p" variant="bodyMd">
-                  Bu uygulama ile Shopify siparişlerinizi kolayca Aras Kargo'ya
-                  gönderebilir, takip numaralarını çekebilir ve fulfillment
-                  işlemlerini yönetebilirsiniz.
-                </Text>
-                <InlineStack gap="300">
-                  <RemixLink to="/app/shipments">
-                    <Button variant="primary" size="large" icon={DeliveryIcon}>Kargo İşlemleri</Button>
-                  </RemixLink>
-                  <RemixLink to="/app/settings">
-                    <Button size="large" icon={PackageIcon}>Ayarlar</Button>
-                  </RemixLink>
-                  <RemixLink to="/app/tracking-test">
-                    <Button size="large" variant="plain">Test Aracı</Button>
-                  </RemixLink>
-                </InlineStack>
-              </BlockStack>
-            </Card>
+            {/* Hero Section */}
+            <div className="gj-hero gj-animate-in">
+              <h2>🚚 Aras Kargo Entegrasyonu</h2>
+              <p>
+                Bu uygulama ile Shopify siparişlerinizi kolayca Aras Kargo'ya
+                gönderebilir, takip numaralarını çekebilir ve fulfillment
+                işlemlerini yönetebilirsiniz.
+              </p>
+              <InlineStack gap="300">
+                <RemixLink to="/app/shipments">
+                  <Button variant="primary" size="large" icon={DeliveryIcon}>Kargo İşlemleri</Button>
+                </RemixLink>
+                <RemixLink to="/app/settings">
+                  <Button size="large" icon={PackageIcon}>Ayarlar</Button>
+                </RemixLink>
+                <RemixLink to="/app/tracking-test">
+                  <Button size="large" variant="plain" tone="critical">Test Aracı</Button>
+                </RemixLink>
+              </InlineStack>
+            </div>
 
-            <div style={{ marginTop: '20px' }}>
-              <Card>
-                <BlockStack gap="400">
-                  <Text as="h3" variant="headingMd">Son İşlemler</Text>
-                  <Divider />
-                  {recentShipments.length === 0 ? (
-                    <Text as="p" tone="subdued">Henüz işlem yok.</Text>
-                  ) : (
-                    <BlockStack gap="200">
-                      {recentShipments.map(s => (
-                        <InlineStack key={s.id} align="space-between">
-                          <Text as="span" fontWeight="bold">{s.orderNumber}</Text>
-                          <Text as="span" tone="subdued">{s.mok}</Text>
-                          <Text as="span" tone={s.status === 'DELIVERED' ? 'success' : 'subdued'}>{s.status}</Text>
-                          <Text as="span" tone="subdued">{new Date(s.createdAt).toLocaleDateString('tr-TR')}</Text>
-                        </InlineStack>
-                      ))}
-                    </BlockStack>
-                  )}
-                </BlockStack>
-              </Card>
+            {/* Recent Activity */}
+            <div style={{ marginTop: '20px' }} className="gj-card gj-animate-in">
+              <div className="gj-card-header">
+                <h3>Son İşlemler</h3>
+              </div>
+              <div className="gj-card-body">
+                {recentShipments.length === 0 ? (
+                  <Text as="p" tone="subdued">Henüz işlem yok.</Text>
+                ) : (
+                  <div className="gj-activity-table">
+                    {recentShipments.map((s: any) => (
+                      <div key={s.id} className="gj-activity-row">
+                        <span className="order-num">#{s.orderNumber}</span>
+                        <span className="mok">{s.mok}</span>
+                        {getStatusBadge(s.status)}
+                        <span className="date">{new Date(s.createdAt).toLocaleDateString('tr-TR')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </Layout.Section>
 
           <Layout.Section variant="oneThird">
-            <BlockStack gap="500">
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Hızlı Başlangıç
-                  </Text>
-                  <BlockStack gap="100">
-                    <Text as="p" variant="bodyMd">
-                      1. <strong>Ayarlar</strong> sayfasından Aras Kargo API bilgilerinizi girin.
-                    </Text>
-                    <Text as="p" variant="bodyMd">
-                      2. En az bir <strong>Tedarikçi</strong> ekleyin (Ad, Kod, AddressID).
-                    </Text>
-                    <Text as="p" variant="bodyMd">
-                      3. <strong>Kargo İşlemleri</strong> sayfasından siparişleri kargoya verin.
-                    </Text>
-                  </BlockStack>
-                </BlockStack>
-              </Card>
+            <BlockStack gap="400">
+              {/* Quick Start */}
+              <div className="gj-card gj-animate-in">
+                <div className="gj-card-header">
+                  <h3>Hızlı Başlangıç</h3>
+                </div>
+                <div className="gj-card-body">
+                  <div className="gj-step">
+                    <span className="gj-step-number">1</span>
+                    <div className="gj-step-content">
+                      <Text as="p" variant="bodyMd">
+                        <strong>Ayarlar</strong> sayfasından Aras Kargo API bilgilerinizi girin.
+                      </Text>
+                    </div>
+                  </div>
+                  <div className="gj-step">
+                    <span className="gj-step-number">2</span>
+                    <div className="gj-step-content">
+                      <Text as="p" variant="bodyMd">
+                        En az bir <strong>Tedarikçi</strong> ekleyin (Ad, Kod, AddressID).
+                      </Text>
+                    </div>
+                  </div>
+                  <div className="gj-step">
+                    <span className="gj-step-number">3</span>
+                    <div className="gj-step-content">
+                      <Text as="p" variant="bodyMd">
+                        <strong>Kargo İşlemleri</strong> sayfasından siparişleri kargoya verin.
+                      </Text>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h2" variant="headingMd">
-                    Özellikler
-                  </Text>
-                  <BlockStack gap="100">
-                    <Text as="p" variant="bodyMd">✅ Aras Kargo SOAP API Entegrasyonu</Text>
-                    <Text as="p" variant="bodyMd">✅ Otomatik MÖK Oluşturma</Text>
-                    <Text as="p" variant="bodyMd">✅ Parçalı Gönderim Desteği</Text>
-                    <Text as="p" variant="bodyMd">✅ Takip Numarası Sorgulama</Text>
-                    <Text as="p" variant="bodyMd">✅ Türkiye Adres Düzeltme</Text>
-                  </BlockStack>
-                </BlockStack>
-              </Card>
+              {/* Features */}
+              <div className="gj-card gj-animate-in">
+                <div className="gj-card-header">
+                  <h3>Özellikler</h3>
+                </div>
+                <div className="gj-card-body">
+                  <ul className="gj-feature-list">
+                    <li>Aras Kargo SOAP API Entegrasyonu</li>
+                    <li>Otomatik MÖK Oluşturma</li>
+                    <li>Parçalı Gönderim Desteği</li>
+                    <li>Takip Numarası Sorgulama</li>
+                    <li>Türkiye Adres Düzeltme</li>
+                  </ul>
+                </div>
+              </div>
             </BlockStack>
           </Layout.Section>
         </Layout>

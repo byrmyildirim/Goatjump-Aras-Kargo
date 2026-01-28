@@ -53,6 +53,29 @@ const getTrackingUrl = (company: string, trackingNumber: string): string => {
     return '';
 };
 
+// Status badge helper for shipments
+const getStatusBadge = (status: string) => {
+    const statusMap: Record<string, { class: string; label: string }> = {
+        'PENDING': { class: 'pending', label: 'Bekliyor' },
+        'SENT_TO_ARAS': { class: 'sent', label: 'Hazırlanıyor' },
+        'IN_TRANSIT': { class: 'in-transit', label: 'Kargoda' },
+        'DELIVERED': { class: 'delivered', label: 'Teslim Edildi' },
+        'CANCELLED': { class: 'cancelled', label: 'İptal' },
+    };
+    const info = statusMap[status] || { class: 'pending', label: status };
+    return <span className={`gj-badge ${info.class}`}>{info.label}</span>;
+};
+
+// Order status badge helper
+const getOrderStatusBadge = (status: string) => {
+    const isPartial = status === 'PARTIALLY_FULFILLED';
+    return (
+        <span className={`gj-badge ${isPartial ? 'partially-fulfilled' : 'pending'}`}>
+            {isPartial ? 'Kısmi Tamamlandı' : 'Bekliyor'}
+        </span>
+    );
+};
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     let orders = [];
     let localShipments = [];
@@ -812,69 +835,80 @@ export default function Shipments() {
                 )}
                 <Layout>
                     <Layout.Section>
-                        <Card>
-                            <BlockStack gap="200">
-                                <Text as="h2" variant="headingMd">Bekleyen Siparişler</Text>
+                        <div className="gj-card">
+                            <div className="gj-card-header">
+                                <h3>Bekleyen Siparişler</h3>
+                            </div>
+                            <div className="gj-card-body">
                                 {orders.length === 0 ? (
-                                    <p>Gönderilecek sipariş bulunamadı.</p>
+                                    <Text as="p" tone="subdued">Gönderilecek sipariş bulunamadı.</Text>
                                 ) : (
-                                    <ResourceList
-                                        resourceName={{ singular: 'order', plural: 'orders' }}
-                                        items={orders}
-                                        renderItem={(item: any) => {
+                                    <BlockStack gap="300">
+                                        {orders.map((item: any) => {
                                             const { id, name, createdAt, displayFulfillmentStatus, shippingAddress } = item;
                                             return (
-                                                <ResourceItem
-                                                    id={id}
+                                                <div
+                                                    key={id}
+                                                    className="gj-order-card"
                                                     onClick={() => handleOrderClick(item)}
-                                                    accessibilityLabel={`View details for ${name}`}
                                                 >
                                                     <InlineStack align="space-between">
                                                         <div>
-                                                            <Text variant="bodyMd" fontWeight="bold" as="span">{name}</Text>
-                                                            <Text variant="bodySm" as="span" tone="subdued"> - {new Date(createdAt).toLocaleDateString()}</Text>
-                                                            <div style={{ fontSize: '0.8em', color: '#666' }}>
+                                                            <span className="order-number">{name}</span>
+                                                            <span className="order-date"> - {new Date(createdAt).toLocaleDateString('tr-TR')}</span>
+                                                            <div className="customer-name">
                                                                 {shippingAddress?.firstName} {shippingAddress?.lastName} - {shippingAddress?.city}
                                                             </div>
                                                         </div>
-                                                        <Badge tone={displayFulfillmentStatus === 'PARTIALLY_FULFILLED' ? 'info' : 'warning'}>
-                                                            {displayFulfillmentStatus || 'UNFULFILLED'}
-                                                        </Badge>
+                                                        {getOrderStatusBadge(displayFulfillmentStatus)}
                                                     </InlineStack>
-                                                </ResourceItem>
+                                                </div>
                                             );
-                                        }}
-                                    />
+                                        })}
+                                    </BlockStack>
                                 )}
-                            </BlockStack>
-                        </Card>
+                            </div>
+                        </div>
                     </Layout.Section>
 
                     <Layout.Section variant="oneThird">
-                        <Card>
-                            <BlockStack gap="200">
-                                <InlineStack align="space-between">
-                                    <Text as="h2" variant="headingMd">Son Gönderiler</Text>
-                                    <Button
-                                        size="micro"
-                                        onClick={() => {
-                                            const form = new FormData();
-                                            form.append("intent", "bulkUpdateStatus");
-                                            fetcher.submit(form, { method: "POST" });
-                                        }}
-                                        loading={fetcher.state === 'submitting'}
-                                    >
-                                        Tümünü Güncelle
-                                    </Button>
-                                </InlineStack>
-                                <BlockStack gap="100">
+                        <div className="gj-card">
+                            <div className="gj-card-header">
+                                <h3>Son Gönderiler</h3>
+                                <Button
+                                    size="micro"
+                                    onClick={() => {
+                                        const form = new FormData();
+                                        form.append("intent", "bulkUpdateStatus");
+                                        fetcher.submit(form, { method: "POST" });
+                                    }}
+                                    loading={fetcher.state === 'submitting'}
+                                >
+                                    Tümünü Güncelle
+                                </Button>
+                            </div>
+                            <div className="gj-card-body">
+                                <BlockStack gap="300">
                                     {localShipments.map((shipment: any) => (
-                                        <div key={shipment.id} className="border-b py-2">
-                                            <Text as="p" fontWeight="bold">{shipment.orderNumber}</Text>
-                                            <Text as="p" tone="subdued" variant="bodySm">MÖK: {shipment.mok}</Text>
-                                            {shipment.trackingNumber && <Text as="p" tone="success">Takip: {shipment.trackingNumber}</Text>}
-                                            <InlineStack gap="200" align="start">
-                                                <Badge>{shipment.status}</Badge>
+                                        <div key={shipment.id} className="gj-shipment-card">
+                                            <div style={{ marginBottom: '8px' }}>
+                                                <Text as="p" fontWeight="bold">{shipment.orderNumber}</Text>
+                                                <Text as="p" tone="subdued" variant="bodySm">
+                                                    <span className="mok-code">{shipment.mok}</span>
+                                                </Text>
+                                                {shipment.trackingNumber && (
+                                                    <a
+                                                        href={`http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${shipment.trackingNumber}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="tracking-link"
+                                                    >
+                                                        Takip: {shipment.trackingNumber}
+                                                    </a>
+                                                )}
+                                            </div>
+                                            <InlineStack gap="200" align="start" wrap>
+                                                {getStatusBadge(shipment.status)}
                                                 {!shipment.trackingNumber && (
                                                     <Button
                                                         size="micro"
@@ -932,8 +966,8 @@ export default function Shipments() {
                                     ))}
                                     {localShipments.length === 0 && <Text as="p" tone="subdued">Henüz gönderi yok.</Text>}
                                 </BlockStack>
-                            </BlockStack>
-                        </Card>
+                            </div>
+                        </div>
                     </Layout.Section>
                 </Layout>
             </BlockStack >
