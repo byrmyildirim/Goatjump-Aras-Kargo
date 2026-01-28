@@ -679,24 +679,6 @@ export default function Shipments() {
                                                     size="micro"
                                                     tone="critical"
                                                     onClick={() => {
-                                                       if (confirm("Bu gönderiyi silmek istediğinize emin misiniz?")) {
-                                                           const form = new FormData();
-                                                           form.append("intent", "deleteShipment");
-                                                           form.append("shipmentId", shipment.id);
-                                                           fetcher.submit(form, { method: "POST" });
-                                                       }
-                                                    }}
-                                                    loading={fetcher.state === 'submitting'}
-                                                >
-                                                    Sil
-                                                </Button>
-                                            </InlineStack>
-                                                <Button
-                                                    size="micro"
-                                                    tone="critical"
-                                                    onClick={() => {
-                                                        // Use modal or confirm? A simple confirm for now.
-                                                        // Polaris doesn't have native confirm, but browser does.
                                                         if (confirm("Bu gönderiyi silmek istediğinize emin misiniz?")) {
                                                             const form = new FormData();
                                                             form.append("intent", "deleteShipment");
@@ -708,95 +690,94 @@ export default function Shipments() {
                                                 >
                                                     Sil
                                                 </Button>
+                                                <Button
+                                                    size="micro"
+                                                    onClick={() => {
+                                                        const form = new FormData();
+                                                        form.append("intent", "getBarcode");
+                                                        form.append("shipmentId", shipment.id);
+                                                        fetcher.submit(form, { method: "POST" });
+                                                    }}
+                                                    loading={fetcher.state === 'submitting'}
+                                                >
+                                                    Barkod
+                                                </Button>
                                             </InlineStack>
-                                            <Button
-                                                size="micro"
-                                                onClick={() => {
-                                                    const form = new FormData();
-                                                    form.append("intent", "getBarcode");
-                                                    form.append("shipmentId", shipment.id);
-                                                    fetcher.submit(form, { method: "POST" });
-                                                }}
-                                                loading={fetcher.state === 'submitting'}
-                                            >
-                                                Barkod
-                                            </Button>
-                                        </InlineStack>
-                            </div>
+                                        </div>
                                     ))}
-                            {localShipments.length === 0 && <Text as="p" tone="subdued">Henüz gönderi yok.</Text>}
-                        </BlockStack>
-                    </BlockStack>
-                </Card>
-            </Layout.Section>
-        </Layout>
-        </BlockStack >
+                                    {localShipments.length === 0 && <Text as="p" tone="subdued">Henüz gönderi yok.</Text>}
+                                </BlockStack>
+                            </BlockStack>
+                        </Card>
+                    </Layout.Section>
+                </Layout>
+            </BlockStack >
 
-        {/* Shipment Modal */ }
-    {
-        selectedOrder && (
-            <Modal
-                open={!!selectedOrder}
-                onClose={() => setSelectedOrder(null)}
-                title={`Sipariş Gönder: ${selectedOrder.name}`}
-                primaryAction={{
-                    content: 'Kargoya Ver (Aras)',
-                    onAction: handleCreateShipment,
-                    loading: fetcher.state === 'submitting'
-                }}
-                secondaryActions={[
-                    {
-                        content: 'İptal',
-                        onAction: () => setSelectedOrder(null),
-                    },
-                ]}
-            >
-                <Modal.Section>
-                    <BlockStack gap="400">
-                        <Select
-                            label="Tedarikçi Seç"
-                            options={suppliers.map((s: any) => ({ label: s.name, value: s.id }))}
-                            value={selectedSupplierId}
-                            onChange={setSelectedSupplierId}
-                        />
+            {/* Shipment Modal */}
+            {
+                selectedOrder && (
+                    <Modal
+                        open={!!selectedOrder}
+                        onClose={() => setSelectedOrder(null)}
+                        title={`Sipariş Gönder: ${selectedOrder.name}`}
+                        primaryAction={{
+                            content: 'Kargoya Ver (Aras)',
+                            onAction: handleCreateShipment,
+                            loading: fetcher.state === 'submitting'
+                        }}
+                        secondaryActions={[
+                            {
+                                content: 'İptal',
+                                onAction: () => setSelectedOrder(null),
+                            },
+                        ]}
+                    >
+                        <Modal.Section>
+                            <BlockStack gap="400">
+                                <Select
+                                    label="Tedarikçi Seç"
+                                    options={suppliers.map((s: any) => ({ label: s.name, value: s.id }))}
+                                    value={selectedSupplierId}
+                                    onChange={setSelectedSupplierId}
+                                />
 
-                        <TextField
-                            label="Paket Sayısı (Parça Adedi)"
-                            type="number"
-                            value={String(pieceCount)}
-                            onChange={(val) => setPieceCount(Math.max(1, parseInt(val) || 1))}
-                            autoComplete="off"
-                            helpText="Bu gönderi kaç parça/koli olacak?"
-                        />
+                                <TextField
+                                    label="Paket Sayısı (Parça Adedi)"
+                                    type="number"
+                                    value={String(pieceCount)}
+                                    onChange={(val) => setPieceCount(Math.max(1, parseInt(val) || 1))}
+                                    autoComplete="off"
+                                    helpText="Bu gönderi kaç parça/koli olacak?"
+                                />
 
-                        <Text as="h3" variant="headingSm">Ürünler</Text>
-                        {selectedOrder.lineItems.edges.map((edge: any) => {
-                            const node = edge.node;
-                            return (
-                                <InlineStack key={node.id} align="space-between" blockAlign="center">
-                                    <Checkbox
-                                        label={`${node.title} (${node.sku})`}
-                                        checked={selectedItems[node.id]}
-                                        onChange={(checked) => setSelectedItems({ ...selectedItems, [node.id]: checked })}
-                                    />
-                                    {selectedItems[node.id] && (
-                                        <TextField
-                                            label="Adet"
-                                            labelHidden
-                                            type="number"
-                                            value={String(selectedQuantities[node.id])}
-                                            onChange={(val) => setSelectedQuantities({ ...selectedQuantities, [node.id]: parseInt(val) })}
-                                            autoComplete="off"
-                                        />
-                                    )}
-                                </InlineStack>
-                            )
-                        })}
-                    </BlockStack>
-                </Modal.Section>
-            </Modal>
-        )
-    }
+                                <Text as="h3" variant="headingSm">Ürünler</Text>
+                                {selectedOrder.lineItems.edges.map((edge: any) => {
+                                    const node = edge.node;
+                                    return (
+                                        <InlineStack key={node.id} align="space-between" blockAlign="center">
+                                            <Checkbox
+                                                label={`${node.title} (${node.sku})`}
+                                                checked={selectedItems[node.id]}
+                                                onChange={(checked) => setSelectedItems({ ...selectedItems, [node.id]: checked })}
+                                            />
+                                            {selectedItems[node.id] && (
+                                                <TextField
+                                                    label="Adet"
+                                                    labelHidden
+                                                    type="number"
+                                                    value={String(selectedQuantities[node.id])}
+                                                    onChange={(val) => setSelectedQuantities({ ...selectedQuantities, [node.id]: parseInt(val) })}
+                                                    autoComplete="off"
+                                                />
+                                            )}
+                                        </InlineStack>
+                                    )
+                                })}
+                            </BlockStack>
+                        </Modal.Section>
+                    </Modal>
+                )
+            }
         </Page >
     );
 }
