@@ -57,6 +57,19 @@ body {
   background-color: var(--gj-surface) !important;
 }
 
+/* Override link colors to use gray instead of blue */
+a {
+  color: var(--gj-text);
+}
+
+a:hover {
+  color: var(--gj-text-muted);
+}
+
+strong {
+  color: var(--gj-text);
+}
+
 /* ============== Stat Cards ============== */
 .gj-stat-card {
   background: white;
@@ -437,7 +450,7 @@ body {
   justify-content: center;
   width: 28px;
   height: 28px;
-  background: var(--gj-gradient-primary);
+  background: var(--gj-text);
   color: white;
   border-radius: 50%;
   font-weight: 700;
