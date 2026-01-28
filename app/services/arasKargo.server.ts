@@ -471,9 +471,13 @@ export const getTrackingNumberByQueryService = async (
  * Returns status: 'PENDING' | 'IN_TRANSIT' | 'DELIVERED' | 'UNKNOWN'
  * 
  * Aras Kargo DURUM_KODU values (from documentation page 9):
- * 1 = Teslim Edildi (Delivered)
- * 9 = Şubede (At Branch - ready for delivery)
- * Other values = In Transit / Processing
+ * 1 = Çıkış Şubesinde (At departure branch)
+ * 2 = Yolda (On the way)
+ * 3 = Teslimat Şubesinde (At delivery branch)
+ * 4 = Teslimatta (Being delivered)
+ * 5 = Parçalı Teslimat (Partial delivery)
+ * 6 = Teslim Edildi (Delivered) ✓
+ * 7 = Yönlendirildi (Redirected)
  */
 export const getDeliveryStatus = async (
     trackingNumber: string,
@@ -533,9 +537,8 @@ export const getDeliveryStatus = async (
                 if (foundItem) {
                     // Check DURUM_KODU field (primary status indicator from Aras Kargo)
                     // According to documentation:
-                    // DURUM_KODU = 1 -> Teslim Edildi (Delivered)
-                    // DURUM_KODU = 9 -> Şubede (At Branch)
-                    // Other values -> In Transit
+                    // 1=Çıkış Şubesinde, 2=Yolda, 3=Teslimat Şubesinde, 4=Teslimatta
+                    // 5=Parçalı Teslimat, 6=Teslim Edildi, 7=Yönlendirildi
 
                     const durumKodu = foundItem['DURUM_KODU'] || foundItem['DurumKodu'] || foundItem['durumKodu'] || foundItem['StatusCode'];
                     const durumKoduNum = parseInt(String(durumKodu), 10);
@@ -543,12 +546,13 @@ export const getDeliveryStatus = async (
                     console.log('[getDeliveryStatus] DURUM_KODU:', durumKodu, 'Parsed:', durumKoduNum);
 
                     // Check for delivery indicators
-                    // DURUM_KODU = 1 means delivered
-                    if (durumKoduNum === 1) {
+                    // DURUM_KODU = 6 means Teslim Edildi (Delivered)
+                    // DURUM_KODU = 5 means Parçalı Teslimat (Partial Delivery - also delivered)
+                    if (durumKoduNum === 6 || durumKoduNum === 5) {
                         return {
                             success: true,
                             status: 'DELIVERED',
-                            message: 'Kargo teslim edildi (DURUM_KODU=1)',
+                            message: `Kargo teslim edildi (DURUM_KODU=${durumKoduNum})`,
                             rawResponse: JSON.stringify(foundItem, null, 2)
                         };
                     }
