@@ -172,7 +172,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-    const { admin } = await authenticate.admin(request);
+    const { admin, session } = await authenticate.admin(request);
     const formData = await request.formData();
     const intent = formData.get("intent");
 
@@ -635,6 +635,59 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return { success: true, trackingNumber: trackingNumber };
     };
 
+    const updateShopifyOrderToDelivered = async (orderId: string, admin: any, session: any) => {
+        try {
+            console.log(`[Shopify Sync] Updating order ${orderId} status to DELIVERED...`);
+
+            // 1. Get Fulfillment ID via GraphQL
+            const fulfillmentQuery = await admin.graphql(`
+                #graphql
+                query getFulfillments($id: ID!) {
+                    order(id: $id) {
+                        fulfillments {
+                            id
+                            status
+                        }
+                    }
+                }
+            `, {
+                variables: { id: `gid://shopify/Order/${orderId}` }
+            });
+
+            const fulfillmentData = await fulfillmentQuery.json();
+            const fulfillments = fulfillmentData.data?.order?.fulfillments || [];
+
+            if (fulfillments.length === 0) {
+                console.log(`[Shopify Sync] No fulfillments found for order ${orderId}`);
+                return;
+            }
+
+            // Find valid fulfillment (not cancelled)
+            const fulfillment = fulfillments.find((f: any) => f.status !== 'CANCELLED');
+            if (!fulfillment) {
+                console.log(`[Shopify Sync] No active fulfillment found for order ${orderId}`);
+                return;
+            }
+
+            // Extract numeric ID
+            const fulfillmentId = fulfillment.id.split('/').pop();
+
+            // 2. Create Fulfillment Event via REST resource
+            // Using admin.rest.resources.FulfillmentEvent
+            const FulfillmentEvent = admin.rest.resources.FulfillmentEvent;
+            const event = new FulfillmentEvent({ session: session });
+            event.order_id = Number(orderId);
+            event.fulfillment_id = Number(fulfillmentId);
+            event.status = "delivered";
+
+            await event.save({});
+            console.log(`[Shopify Sync] Order ${orderId} fulfillment updated to DELIVERED.`);
+
+        } catch (e) {
+            console.error("[Shopify Sync] Error updating fulfillment status:", e);
+        }
+    };
+
     // Helper for updating a single shipment
     const checkAndUpdateShipment = async (shipment: any, settings: any, admin: any) => {
         if (!shipment.mok) return { success: false, message: "MÖK yok" };
@@ -757,8 +810,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
             // If delivered, update Shopify fulfillment status
             if (result.status === 'DELIVERED' && shipment.orderId) {
-                // TODO: Implement robust Shopify fulfillment update (requires finding fulfillment ID first)
-                console.log(`[Shopify Sync] Order ${shipment.orderNumber} delivered. Ready to update fulfillment status.`);
+                await updateShopifyOrderToDelivered(shipment.orderId, admin, session);
             }
 
             const statusLabel = result.status === 'DELIVERED' ? 'Teslim Edildi' :
@@ -809,6 +861,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                         where: { id: shipment.id },
                         data: { status: newStatus }
                     });
+
+                    // If delivered, update Shopify fulfillment status
+                    if (newStatus === 'DELIVERED' && shipment.orderId) {
+                        await updateShopifyOrderToDelivered(shipment.orderId, admin, session);
+                    }
 
                     if (result.status === 'DELIVERED') deliveredCount++;
                     if (result.status === 'IN_TRANSIT') inTransitCount++;
