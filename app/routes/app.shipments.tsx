@@ -672,7 +672,7 @@ export default function Shipments() {
                                                         }}
                                                         loading={fetcher.state === 'submitting'}
                                                     >
-                                                        Güncelle
+                                                        Takip No Çek
                                                     </Button>
                                                 )}
                                                 <Button
