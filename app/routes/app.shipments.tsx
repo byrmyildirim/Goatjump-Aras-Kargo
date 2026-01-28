@@ -490,6 +490,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return json({ status: "success", message: `${updatedCount} adet gönderi güncellendi.` });
     }
 
+    if (intent === "deleteShipment") {
+        const shipmentId = formData.get("shipmentId") as string;
+        try {
+            // Fix foreign key constraint by deleting items first
+            await prisma.shipmentItem.deleteMany({ where: { shipmentId: shipmentId } });
+            await prisma.shipment.delete({ where: { id: shipmentId } });
+            return json({ status: "success", message: "Gönderi silindi." });
+        } catch (error) {
+            console.error("Delete Shipment Error:", error);
+            return json({ status: "error", message: "Silme işlemi başarısız: " + (error as any).message });
+        }
+    }
+
     return null;
 };
 
