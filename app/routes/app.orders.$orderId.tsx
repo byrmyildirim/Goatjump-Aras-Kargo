@@ -1217,9 +1217,11 @@ export default function OrderDetail() {
                     mok={currentLabelData.mok}
                     orderName={order.name}
                     supplierName={currentLabelData.supplier.name}
-                    receiverName={`${shippingAddress?.firstName || ''} ${shippingAddress?.lastName || ''}`}
-                    receiverAddress={shippingAddress?.address1 || ''}
-                    receiverCity={`${shippingAddress?.city || ''}, ${shippingAddress?.province || ''}`}
+                    receiverName={`${(editedAddress || shippingAddress)?.firstName || ''} ${(editedAddress || shippingAddress)?.lastName || ''}`}
+                    receiverAddress={(editedAddress || shippingAddress)?.address1 || ''}
+                    receiverCity={`${(editedAddress || shippingAddress)?.city || ''}, ${(editedAddress || shippingAddress)?.province || ''}`}
+                    receiverPhone={(editedAddress || shippingAddress)?.phone || ''}
+                    pieceCount={pieceCount}
                     items={currentLabelData.items}
                 />
             )}

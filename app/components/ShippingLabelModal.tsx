@@ -10,6 +10,8 @@ interface ShippingLabelModalProps {
     receiverName: string;
     receiverAddress: string;
     receiverCity: string;
+    receiverPhone?: string;
+    pieceCount?: number;
     items: { title: string; quantity: number }[];
 }
 
@@ -22,6 +24,8 @@ export default function ShippingLabelModal({
     receiverName,
     receiverAddress,
     receiverCity,
+    receiverPhone,
+    pieceCount = 1,
     items
 }: ShippingLabelModalProps) {
 
@@ -36,44 +40,89 @@ export default function ShippingLabelModal({
                         <title>Kargo Fişi - ${orderName}</title>
                         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
                         <style>
-                            body { font-family: Arial, sans-serif; padding: 20px; }
-                            .label { border: 2px solid #000; padding: 20px; max-width: 400px; margin: auto; }
-                            .header { text-align: center; border-bottom: 1px solid #000; padding-bottom: 10px; margin-bottom: 10px; }
-                            .section { margin-bottom: 15px; }
-                            .section-title { font-weight: bold; font-size: 12px; color: #666; margin-bottom: 5px; }
-                            .barcode { text-align: center; margin: 20px 0; }
-                            .items { font-size: 12px; }
-                            .item { padding: 2px 0; }
+                            @page { margin: 0; }
+                            body { font-family: Arial, sans-serif; padding: 10px; margin: 0; }
+                            .label-container { max-width: 400px; margin: auto; }
+                            table { width: 100%; border-collapse: collapse; border: 1px solid #000; font-size: 11px; }
+                            th, td { border: 1px solid #000; padding: 4px; text-align: left; vertical-align: top; }
+                            .header-row { background-color: #f2f2f2; text-align: center; font-weight: bold; font-size: 14px; }
+                            .label-col { width: 25%; font-weight: bold; }
+                            .value-col { width: 75%; }
+                            .barcode-section { text-align: center; padding: 10px 0; border: 1px solid #000; border-top: none; }
+                            #barcode { width: 100%; max-height: 100px; }
+                            .barcode-text { font-size: 14px; font-weight: bold; margin-top: 5px; }
                         </style>
                     </head>
                     <body>
-                        <div class="label">
-                            <div class="header">
-                                <h2 style="margin: 0;">ARAS KARGO</h2>
-                                <p style="margin: 5px 0; font-size: 14px;">Sipariş: ${orderName}</p>
-                            </div>
-                            <div class="section">
-                                <div class="section-title">GÖNDEREN</div>
-                                <div>${supplierName}</div>
-                            </div>
-                            <div class="section">
-                                <div class="section-title">ALICI</div>
-                                <div><strong>${receiverName}</strong></div>
-                                <div>${receiverAddress}</div>
-                                <div>${receiverCity}</div>
-                            </div>
-                            <div class="barcode">
+                        <div class="label-container">
+                            <table>
+                                <tr class="header-row">
+                                    <td colspan="2">Gönderici Bilgileri</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Firma</td>
+                                    <td class="value-col">GOAT JUMP SPOR MALZEMELERİ İTHALAT İHRACAT VE TİCARET ANONİM ŞİRKETi</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Telefon</td>
+                                    <td class="value-col">05335765151</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Adres</td>
+                                    <td class="value-col">YENİKÖY MAH. KERAMİBEY SK. NO: 1 İÇ KAPI NO: 2 SARIYER/ İSTANBUL Sarıyer / İstanbul</td>
+                                </tr>
+                                <tr class="header-row">
+                                    <td colspan="2">Alıcı Bilgileri</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">İsim</td>
+                                    <td class="value-col"><strong>${receiverName}</strong></td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Telefon</td>
+                                    <td class="value-col">${receiverPhone || ''}</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Adres</td>
+                                    <td class="value-col">${receiverAddress} ${receiverCity}</td>
+                                </tr>
+                                <tr class="header-row">
+                                    <td colspan="2">Kargo Bilgileri</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Kargo Firması</td>
+                                    <td class="value-col">Aras Kargo</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Ödeme Türü</td>
+                                    <td class="value-col">Gönderici Ödemeli</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Kargo Tipi</td>
+                                    <td class="value-col">Gönderici Ödemeli Kargo</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Paket Sayısı</td>
+                                    <td class="value-col">${pieceCount}/${pieceCount}</td>
+                                </tr>
+                                <tr>
+                                    <td class="label-col">Desi</td>
+                                    <td class="value-col">1</td>
+                                </tr>
+                            </table>
+                            <div class="barcode-section">
                                 <svg id="barcode"></svg>
-                            </div>
-                            <div class="section">
-                                <div class="section-title">İÇERİK</div>
-                                <div class="items">
-                                    ${items.map(i => `<div class="item">${i.quantity}x ${i.title}</div>`).join('')}
-                                </div>
+                                <div class="barcode-text">${mok}</div>
                             </div>
                         </div>
                         <script>
-                            JsBarcode("#barcode", "${mok}", { format: "CODE128", height: 60, displayValue: true });
+                            JsBarcode("#barcode", "${mok}", { 
+                                format: "CODE128", 
+                                height: 50, 
+                                displayValue: false,
+                                margin: 0,
+                                width: 2
+                            });
                             setTimeout(() => window.print(), 500);
                         </script>
                     </body>
@@ -98,39 +147,67 @@ export default function ShippingLabelModal({
             ]}
         >
             <Modal.Section>
-                <div id="shipping-label-content">
-                    <BlockStack gap="400">
-                        <div style={{ textAlign: 'center', borderBottom: '1px solid #ddd', paddingBottom: '12px' }}>
-                            <Text as="h2" variant="headingLg">ARAS KARGO</Text>
-                            <Text as="p" tone="subdued">Sipariş: {orderName}</Text>
-                        </div>
-
-                        <BlockStack gap="200">
-                            <Text as="p" variant="bodySm" tone="subdued">GÖNDEREN</Text>
-                            <Text as="p" variant="bodyMd" fontWeight="semibold">{supplierName}</Text>
-                        </BlockStack>
-
-                        <BlockStack gap="200">
-                            <Text as="p" variant="bodySm" tone="subdued">ALICI</Text>
-                            <Text as="p" variant="bodyMd" fontWeight="semibold">{receiverName}</Text>
-                            <Text as="p" variant="bodySm">{receiverAddress}</Text>
-                            <Text as="p" variant="bodySm">{receiverCity}</Text>
-                        </BlockStack>
-
-                        <div style={{ textAlign: 'center', padding: '20px 0', backgroundColor: '#f9f9f9', borderRadius: '8px' }}>
-                            <Barcode value={mok} height={80} />
-                            <Text as="p" variant="headingMd" fontWeight="bold">{mok}</Text>
-                        </div>
-
-                        <BlockStack gap="200">
-                            <Text as="p" variant="bodySm" tone="subdued">İÇERİK ({items.reduce((sum, i) => sum + i.quantity, 0)} parça)</Text>
-                            {items.map((item, idx) => (
-                                <Text key={idx} as="p" variant="bodySm">
-                                    {item.quantity}x {item.title}
-                                </Text>
-                            ))}
-                        </BlockStack>
-                    </BlockStack>
+                <div id="shipping-label-content" style={{ padding: '10px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', fontSize: '12px' }}>
+                        <tbody>
+                            <tr style={{ backgroundColor: '#f2f2f2', textAlign: 'center', fontWeight: 'bold' }}>
+                                <td colSpan={2} style={{ border: '1px solid #000', padding: '8px' }}>Gönderici Bilgileri</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold', width: '30%' }}>Firma</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>GOAT JUMP SPOR MALZEMELERİ İTHALAT İHRACAT VE TİCARET ANONİM ŞİRKETi</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Telefon</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>05335765151</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Adres</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>YENİKÖY MAH. KERAMİBEY SK. NO: 1 İÇ KAPI NO: 2 SARIYER/ İSTANBUL Sarıyer / İstanbul</td>
+                            </tr>
+                            <tr style={{ backgroundColor: '#f2f2f2', textAlign: 'center', fontWeight: 'bold' }}>
+                                <td colSpan={2} style={{ border: '1px solid #000', padding: '8px' }}>Alıcı Bilgileri</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>İsim</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}><strong>{receiverName}</strong></td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Telefon</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>{receiverPhone}</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Adres</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>{receiverAddress} {receiverCity}</td>
+                            </tr>
+                            <tr style={{ backgroundColor: '#f2f2f2', textAlign: 'center', fontWeight: 'bold' }}>
+                                <td colSpan={2} style={{ border: '1px solid #000', padding: '8px' }}>Kargo Bilgileri</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Kargo Firması</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>Aras Kargo</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Ödeme Türü</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>Gönderici Ödemeli</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Kargo Tipi</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>Gönderici Ödemeli Kargo</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Paket Sayısı</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>{pieceCount}/{pieceCount}</td>
+                            </tr>
+                            <tr>
+                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Desi</td>
+                                <td style={{ border: '1px solid #000', padding: '6px' }}>1</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div style={{ textAlign: 'center', padding: '10px 0', border: '1px solid #000', borderTop: 'none' }}>
+                        <Barcode value={mok} height={60} />
+                    </div>
                 </div>
             </Modal.Section>
         </Modal>
