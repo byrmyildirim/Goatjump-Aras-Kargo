@@ -37,7 +37,7 @@ export default function ShippingLabelModal({
                 printWindow.document.write(`
                     <html>
                     <head>
-                        <title>Kargo Fişi - ${orderName}</title>
+                        <title>${receiverName} ${orderName} Nolu Sipariş</title>
                         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
                         <style>
                             @page { margin: 0; }
@@ -49,7 +49,7 @@ export default function ShippingLabelModal({
                             .label-col { width: 25%; font-weight: bold; }
                             .value-col { width: 75%; }
                             .barcode-section { text-align: center; padding: 10px 0; border: 1px solid #000; border-top: none; }
-                            #barcode { width: 100%; max-height: 100px; }
+                            #barcode { width: 90%; max-height: 100px; display: block; margin: 0 auto; }
                             .barcode-text { font-size: 14px; font-weight: bold; margin-top: 5px; }
                         </style>
                     </head>
@@ -120,7 +120,7 @@ export default function ShippingLabelModal({
                                 format: "CODE128", 
                                 height: 50, 
                                 displayValue: false,
-                                margin: 0,
+                                margin: 10,
                                 width: 2
                             });
                             setTimeout(() => window.print(), 500);
@@ -133,6 +133,35 @@ export default function ShippingLabelModal({
         }
     };
 
+    const handleDownload = async () => {
+        const element = document.getElementById('shipping-label-content');
+        if (!element) return;
+
+        // html2pdf is usually loaded via CDN or npm. Since it's not in package.json, we'll try to use a script or check if it's available.
+        // For robustness, we'll use a dynamic script injection if it's not present.
+        if (typeof (window as any).html2pdf === 'undefined') {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+            document.head.appendChild(script);
+            script.onload = () => {
+                triggerDownload(element);
+            };
+        } else {
+            triggerDownload(element);
+        }
+    };
+
+    const triggerDownload = (element: HTMLElement) => {
+        const opt = {
+            margin: 10,
+            filename: `${receiverName} ${orderName} Nolu Sipariş.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        (window as any).html2pdf().set(opt).from(element).save();
+    };
+
     return (
         <Modal
             open={open}
@@ -143,6 +172,10 @@ export default function ShippingLabelModal({
                 onAction: handlePrint
             }}
             secondaryActions={[
+                {
+                    content: 'İndir',
+                    onAction: handleDownload
+                },
                 { content: 'Kapat', onAction: onClose }
             ]}
         >

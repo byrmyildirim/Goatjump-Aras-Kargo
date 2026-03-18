@@ -972,18 +972,34 @@ export default function OrderDetail() {
                                                         )}
                                                     </BlockStack>
 
-                                                    <Button
-                                                        onClick={() => {
-                                                            const formData = new FormData();
-                                                            formData.append("intent", "checkStatus");
-                                                            formData.append("shipmentId", shipment.id);
-                                                            fetcher.submit(formData, { method: "POST" });
-                                                        }}
-                                                        loading={fetcher.state === 'submitting'}
-                                                        variant="plain"
-                                                    >
-                                                        Durum Sorgula
-                                                    </Button>
+                                                    <InlineStack gap="200">
+                                                        <Button
+                                                            onClick={() => {
+                                                                const formData = new FormData();
+                                                                formData.append("intent", "checkStatus");
+                                                                formData.append("shipmentId", shipment.id);
+                                                                fetcher.submit(formData, { method: "POST" });
+                                                            }}
+                                                            loading={fetcher.state === 'submitting'}
+                                                            variant="plain"
+                                                        >
+                                                            Durum Sorgula
+                                                        </Button>
+                                                        <Button
+                                                            onClick={() => {
+                                                                setCurrentLabelData({
+                                                                    mok: shipment.mok,
+                                                                    supplier: { name: shipment.supplierName },
+                                                                    items: shipment.items.map((i: any) => ({ title: i.title, quantity: i.quantity }))
+                                                                });
+                                                                setPieceCount(shipment.pieceCount);
+                                                                setShowLabelModal(true);
+                                                            }}
+                                                            variant="plain"
+                                                        >
+                                                            Fiş Görüntüle
+                                                        </Button>
+                                                    </InlineStack>
                                                 </InlineStack>
                                                 <Text as="p" variant="bodySm" tone="subdued">
                                                     {shipment.items.length} kalem ürün
@@ -1155,7 +1171,23 @@ export default function OrderDetail() {
                                             <BlockStack gap="100">
                                                 <Text as="span" fontWeight="semibold">{shipment.supplierName}</Text>
                                                 <Text as="span" variant="bodySm">MÖK: {shipment.mok}</Text>
-                                                <Badge>{shipment.status}</Badge>
+                                                 <InlineStack align="space-between" blockAlign="center">
+                                                    <Badge>{shipment.status}</Badge>
+                                                    <Button
+                                                        onClick={() => {
+                                                            setCurrentLabelData({
+                                                                mok: shipment.mok,
+                                                                supplier: { name: shipment.supplierName },
+                                                                items: shipment.items.map((i: any) => ({ title: i.title, quantity: i.quantity }))
+                                                            });
+                                                            setPieceCount(shipment.pieceCount);
+                                                            setShowLabelModal(true);
+                                                        }}
+                                                        variant="plain"
+                                                    >
+                                                        Fiş Görüntüle
+                                                    </Button>
+                                                </InlineStack>
                                             </BlockStack>
                                         </Box>
                                     ))}
