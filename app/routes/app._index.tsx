@@ -16,7 +16,7 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { admin } = await authenticate.admin(request);
 
   // Statistics
   const pendingCount = await prisma.shipment.count({ where: { status: 'PENDING' } });
@@ -30,7 +30,37 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     orderBy: { createdAt: 'desc' }
   });
 
-  return json({ stats: { pendingCount, sentCount, inTransitCount, deliveredCount }, recentShipments });
+  // Fetch customer names from Shopify for these shipments
+  const enrichedShipments = await Promise.all(recentShipments.map(async (s) => {
+    let gid = s.orderId;
+    if (!gid.startsWith('gid://')) {
+        gid = `gid://shopify/Order/${gid}`;
+    }
+    
+    try {
+      const response = await admin.graphql(`#graphql
+        query getOrder($id: ID!) {
+          order(id: $id) {
+            customer {
+              firstName
+              lastName
+            }
+          }
+        }
+      `, { variables: { id: gid } });
+      const responseJson = await response.json();
+      const customer = responseJson.data?.order?.customer;
+      return { 
+        ...s, 
+        customerName: customer ? `${customer.firstName} ${customer.lastName}` : "Bilinmiyor" 
+      };
+    } catch (e) {
+      console.error(`Error fetching customer for ${s.orderNumber}:`, e);
+      return { ...s, customerName: "Bilinmiyor" };
+    }
+  }));
+
+  return json({ stats: { pendingCount, sentCount, inTransitCount, deliveredCount }, recentShipments: enrichedShipments });
 };
 
 // Status badge helper
@@ -105,10 +135,16 @@ export default function Index() {
                   <div className="gj-activity-table">
                     {recentShipments.map((s: any) => (
                       <div key={s.id} className="gj-activity-row">
-                        <span className="order-num">#{s.orderNumber}</span>
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '15px' }}>
+                          <span className="order-num">#{s.orderNumber}</span>
+                          <span className="customer-name-inline" style={{ fontWeight: 500 }}>{s.customerName}</span>
+                        </div>
                         <span className="mok">{s.mok}</span>
                         {getStatusBadge(s.status)}
                         <span className="date">{new Date(s.createdAt).toLocaleDateString('tr-TR')}</span>
+                        <RemixLink to={`/app/orders/${s.orderId.split('/').pop()}`}>
+                           <Button size="micro" variant="secondary">Siparişe Git</Button>
+                        </RemixLink>
                       </div>
                     ))}
                   </div>

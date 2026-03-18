@@ -465,10 +465,10 @@ strong {
 }
 
 .gj-activity-row {
-  display: grid;
-  grid-template-columns: 80px 1fr 120px 100px;
+  display: flex;
+  justify-content: space-between;
   gap: 16px;
-  padding: 12px 0;
+  padding: 12px 10px;
   border-bottom: 1px solid var(--gj-border);
   align-items: center;
 }
@@ -543,7 +543,7 @@ strong {
 
 /* ============== Polaris Overrides ============== */
 .Polaris-Page {
-  max-width: 1200px;
+  max-width: 1600px;
 }
 
 .Polaris-Card {

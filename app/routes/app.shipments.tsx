@@ -149,6 +149,45 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                 orderBy: { createdAt: 'desc' },
                 take: 20
             });
+
+            // Enrich with customer names from Shopify
+            if (localShipments.length > 0) {
+                const orderIds = localShipments.map((s: any) =>
+                    s.orderId.startsWith("gid://") ? s.orderId : `gid://shopify/Order/${s.orderId}`
+                );
+                const uniqueIds = Array.from(new Set(orderIds));
+
+                const nodesResponse = await admin.graphql(
+                    `#graphql
+                    query getOrders($ids: [ID!]!) {
+                      nodes(ids: $ids) {
+                        ... on Order {
+                          id
+                          customer {
+                            firstName
+                            lastName
+                          }
+                        }
+                      }
+                    }`,
+                    { variables: { ids: uniqueIds } }
+                );
+
+                const nodesJson = await nodesResponse.json();
+                const orderMap = (nodesJson.data?.nodes || []).reduce((acc: any, node: any) => {
+                    if (node && node.id) acc[node.id] = node.customer;
+                    return acc;
+                }, {});
+
+                localShipments = localShipments.map((s: any) => {
+                    const gid = s.orderId.startsWith("gid://") ? s.orderId : `gid://shopify/Order/${s.orderId}`;
+                    const customer = orderMap[gid];
+                    return {
+                        ...s,
+                        customerName: customer ? `${customer.firstName} ${customer.lastName}` : "Bilinmiyor"
+                    };
+                });
+            }
         } catch (e) {
             console.error("Error fetching shipments:", e);
             errors.push("Geçmiş gönderiler yüklenemedi (Veritabanı Hatası)");
@@ -1103,7 +1142,9 @@ export default function Shipments() {
                                     {localShipments.map((shipment: any) => (
                                         <div key={shipment.id} className="gj-shipment-card">
                                             <div style={{ marginBottom: '8px' }}>
-                                                <Text as="p" fontWeight="bold">{shipment.orderNumber}</Text>
+                                                <Text as="p" fontWeight="bold">
+                                                    {shipment.orderNumber} - <span style={{ color: 'var(--gj-text-muted)', fontWeight: 500 }}>{shipment.customerName}</span>
+                                                </Text>
                                                 <Text as="p" tone="subdued" variant="bodySm">
                                                     <span className="mok-code">{shipment.mok}</span>
                                                 </Text>
