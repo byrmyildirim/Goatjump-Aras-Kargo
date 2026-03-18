@@ -80,7 +80,7 @@ export default function Index() {
   const { stats, recentShipments } = useLoaderData<typeof loader>();
 
   return (
-    <Page>
+    <Page fullWidth>
       <TitleBar title="Goatjump Aras Kargo" />
       <BlockStack gap="500">
 

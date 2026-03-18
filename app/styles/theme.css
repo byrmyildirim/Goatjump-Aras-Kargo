@@ -543,7 +543,7 @@ strong {
 
 /* ============== Polaris Overrides ============== */
 .Polaris-Page {
-  max-width: 1600px;
+  max-width: none !important;
 }
 
 .Polaris-Card {

@@ -1058,7 +1058,7 @@ export default function Shipments() {
 
 
     return (
-        <Page>
+        <Page fullWidth>
             <TitleBar title="Kargo İşlemleri" />
             <BlockStack gap="500">
                 {errors && errors.length > 0 && (
