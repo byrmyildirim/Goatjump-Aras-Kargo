@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, useFetcher, useSubmit, useNavigate } from "@remix-run/react";
+import { useLoaderData, useFetcher, useSubmit, useNavigate, Link as RemixLink } from "@remix-run/react";
 import {
     Page,
     Layout,
@@ -1161,6 +1161,9 @@ export default function Shipments() {
                                             </div>
                                             <InlineStack gap="200" align="start" wrap>
                                                 {getStatusBadge(shipment.status)}
+                                                <RemixLink to={`/app/orders/${shipment.orderId.split('/').pop()}`}>
+                                                    <Button size="micro" variant="secondary">Siparişe Git</Button>
+                                                </RemixLink>
                                                 {!shipment.trackingNumber && (
                                                     <Button
                                                         size="micro"
