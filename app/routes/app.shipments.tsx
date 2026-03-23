@@ -163,7 +163,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         try {
             localShipments = await prisma.shipment.findMany({
                 orderBy: { createdAt: 'desc' },
-                take: 20
+                take: 100
             });
 
             // Enrich with customer names from Shopify
