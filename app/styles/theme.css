@@ -313,6 +313,18 @@ strong {
   background-color: #f1f5f9;
 }
 
+.gj-col-no {
+  width: 40px;
+  text-align: center !important;
+  color: var(--gj-text-muted) !important;
+}
+
+/* ============== Action Buttons ============== */
+.gj-action-btn-container button {
+  min-width: 90px;
+  justify-content: center;
+}
+
 /* ============== Order Card ============== */
 .gj-order-card {
   background: white;

@@ -1106,6 +1106,7 @@ export default function Shipments() {
                                         <table className="gj-table">
                                             <thead>
                                                 <tr>
+                                                    <th className="gj-col-no">No</th>
                                                     <th>Tarih</th>
                                                     <th>Sipariş No</th>
                                                     <th>Müşteri Adı</th>
@@ -1113,10 +1114,11 @@ export default function Shipments() {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {orders.map((item: any) => {
+                                                {orders.map((item: any, index: number) => {
                                                     const { id, name, createdAt, displayFulfillmentStatus, shippingAddress } = item;
                                                     return (
                                                         <tr key={id} onClick={() => handleOrderClick(item)} style={{ cursor: 'pointer' }}>
+                                                            <td className="gj-col-no">{index + 1}</td>
                                                             <td>{new Date(createdAt).toLocaleDateString('tr-TR')}</td>
                                                             <td><span style={{ fontWeight: 700, color: 'var(--gj-primary)' }}>{name}</span></td>
                                                             <td>{shippingAddress?.firstName} {shippingAddress?.lastName}</td>
@@ -1189,11 +1191,12 @@ export default function Shipments() {
                                                     </a>
                                                 )}
                                             </div>
-                                            <InlineStack gap="200" align="start" wrap>
-                                                {getStatusBadge(shipment.status)}
-                                                <RemixLink to={`/app/orders/${shipment.orderId.split('/').pop()}`}>
-                                                    <Button size="micro" variant="secondary">Siparişe Git</Button>
-                                                </RemixLink>
+                                            <div className="gj-action-btn-container" style={{ marginTop: '12px' }}>
+                                                <InlineStack gap="200" align="start" wrap>
+                                                    {getStatusBadge(shipment.status)}
+                                                    <RemixLink to={`/app/orders/${shipment.orderId.split('/').pop()}`}>
+                                                        <Button size="micro" variant="secondary">Siparişe Git</Button>
+                                                    </RemixLink>
                                                 {!shipment.trackingNumber && (
                                                     <Button
                                                         size="micro"
@@ -1248,6 +1251,7 @@ export default function Shipments() {
                                                 </Button>
                                             </InlineStack>
                                         </div>
+                                    </div>
                                     ))}
                                     {filteredShipments.length === 0 && <Text as="p" tone="subdued">Bu kategoride henüz gönderi yok.</Text>}
                                 </BlockStack>
