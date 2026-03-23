@@ -1167,9 +1167,12 @@ export default function Shipments() {
                                         {filteredShipments.map((shipment: any) => (
                                         <div key={shipment.id} className="gj-shipment-card">
                                             <div style={{ marginBottom: '8px' }}>
-                                                <Text as="p" fontWeight="bold">
-                                                    {shipment.orderNumber} - <span style={{ color: 'var(--gj-text-muted)', fontWeight: 500 }}>{shipment.customerName}</span>
-                                                </Text>
+                                                <InlineStack align="space-between" blockAlign="center">
+                                                    <Text as="p" fontWeight="bold">
+                                                        {shipment.orderNumber} - <span style={{ color: 'var(--gj-text-muted)', fontWeight: 500 }}>{shipment.customerName}</span>
+                                                    </Text>
+                                                    <Badge tone="attention">{shipment.supplierName}</Badge>
+                                                </InlineStack>
                                                 <Text as="p" tone="subdued" variant="bodySm">
                                                     <span className="mok-code">{shipment.mok}</span>
                                                 </Text>
