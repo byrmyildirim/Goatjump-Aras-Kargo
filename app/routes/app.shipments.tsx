@@ -1228,14 +1228,9 @@ export default function Shipments() {
                                                                 size="micro"
                                                                 icon={EditIcon}
                                                                 onClick={() => {
-                                                                    const trackingNumber = prompt("Lütfen takip numarasını giriniz:");
-                                                                    if (trackingNumber) {
-                                                                        const form = new FormData();
-                                                                        form.append("intent", "updateTrackingNumber");
-                                                                        form.append("shipmentId", shipment.id);
-                                                                        form.append("trackingNumber", trackingNumber);
-                                                                        fetcher.submit(form, { method: "POST" });
-                                                                    }
+                                                                    setSelectedManualShipment(shipment);
+                                                                    setManualTrackingNo("");
+                                                                    setSelectedCargoCompany("Aras Kargo");
                                                                 }}
                                                             />
                                                         </Tooltip>
