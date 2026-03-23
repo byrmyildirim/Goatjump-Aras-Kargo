@@ -65,7 +65,12 @@ const getTrackingUrl = (company: string, trackingNumber: string): string => {
 };
 
 // Status badge helper for shipments
-const getStatusBadge = (status: string) => {
+const getStatusBadge = (status: string, hasTrackingNumber: boolean) => {
+    let displayStatus = status;
+    if (!hasTrackingNumber) {
+        displayStatus = 'SENT_TO_ARAS'; // Force "Hazırlanıyor" if no tracking number
+    }
+
     const statusMap: Record<string, { class: string; label: string }> = {
         'PENDING': { class: 'pending', label: 'Bekliyor' },
         'SENT_TO_ARAS': { class: 'sent', label: 'Hazırlanıyor' },
@@ -73,7 +78,7 @@ const getStatusBadge = (status: string) => {
         'DELIVERED': { class: 'delivered', label: 'Teslim Edildi' },
         'CANCELLED': { class: 'cancelled', label: 'İptal' },
     };
-    const info = statusMap[status] || { class: 'pending', label: status };
+    const info = statusMap[displayStatus] || { class: 'pending', label: displayStatus };
     return <span className={`gj-badge ${info.class}`}>{info.label}</span>;
 };
 
@@ -908,12 +913,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return json({ status: "error", message: "Ayarlar bulunamadı." });
         }
 
-        // Find shipments that are not yet delivered
+        // Find shipments that have a tracking number. Temporarily checking all to auto-fix statuses.
         const shipmentsToCheck = await prisma.shipment.findMany({
             where: {
-                status: { not: 'DELIVERED' }
+                trackingNumber: { not: null }
             },
             take: 50
+        });
+
+        // Background script to fix any 'no tracking' items that got corrupted to IN_TRANSIT/DELIVERED
+        await prisma.shipment.updateMany({
+            where: {
+                trackingNumber: null,
+                status: { in: ['IN_TRANSIT', 'DELIVERED'] }
+            },
+            data: { status: 'SENT_TO_ARAS' }
         });
 
         if (shipmentsToCheck.length === 0) {
@@ -997,24 +1011,17 @@ export default function Shipments() {
             panelID: 'waiting-tracking-content',
         },
         {
-            id: 'kargoda',
-            content: 'Kargolananlar',
-            panelID: 'kargoda-content',
-        },
-        {
-            id: 'delivered',
-            content: 'Teslim Edilenler',
-            panelID: 'delivered-content',
+            id: 'all-shipped',
+            content: 'Gönderilen',
+            panelID: 'all-shipped-content',
         },
     ];
 
     const filteredShipments = localShipments.filter((shipment: any) => {
         if (selectedTab === 0) {
             return !shipment.trackingNumber;
-        } else if (selectedTab === 1) {
-            return !!shipment.trackingNumber && shipment.status !== 'DELIVERED';
         } else {
-            return shipment.status === 'DELIVERED';
+            return !!shipment.trackingNumber;
         }
     });
 
@@ -1217,7 +1224,7 @@ export default function Shipments() {
                                             </div>
                                             <div className="gj-action-btn-container" style={{ marginTop: '12px' }}>
                                                 <InlineStack gap="200" align="end" wrap>
-                                                    {getStatusBadge(shipment.status)}
+                                                    {getStatusBadge(shipment.status, !!shipment.trackingNumber)}
                                                     <Tooltip content="Siparişe Git">
                                                         <RemixLink to={`/app/orders/${shipment.orderId.split('/').pop()}`}>
                                                             <Button size="micro" variant="secondary" icon={SearchIcon} />
