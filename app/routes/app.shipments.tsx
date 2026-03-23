@@ -1106,10 +1106,9 @@ export default function Shipments() {
                                         <table className="gj-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Sipariş</th>
                                                     <th>Tarih</th>
-                                                    <th>Müşteri</th>
-                                                    <th>Şehir</th>
+                                                    <th>Sipariş No</th>
+                                                    <th>Müşteri Adı</th>
                                                     <th>Durum</th>
                                                 </tr>
                                             </thead>
@@ -1118,10 +1117,9 @@ export default function Shipments() {
                                                     const { id, name, createdAt, displayFulfillmentStatus, shippingAddress } = item;
                                                     return (
                                                         <tr key={id} onClick={() => handleOrderClick(item)} style={{ cursor: 'pointer' }}>
-                                                            <td><span style={{ fontWeight: 700, color: 'var(--gj-primary)' }}>{name}</span></td>
                                                             <td>{new Date(createdAt).toLocaleDateString('tr-TR')}</td>
+                                                            <td><span style={{ fontWeight: 700, color: 'var(--gj-primary)' }}>{name}</span></td>
                                                             <td>{shippingAddress?.firstName} {shippingAddress?.lastName}</td>
-                                                            <td>{shippingAddress?.city}</td>
                                                             <td>{getOrderStatusBadge(displayFulfillmentStatus)}</td>
                                                         </tr>
                                                     );
