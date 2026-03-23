@@ -26,7 +26,8 @@ import {
     RefreshIcon, 
     EditIcon, 
     DeleteIcon, 
-    PrintIcon 
+    PrintIcon,
+    CheckIcon
 } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -912,7 +913,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             where: {
                 status: { not: 'DELIVERED' }
             },
-            take: 20
+            take: 50
         });
 
         if (shipmentsToCheck.length === 0) {
@@ -1263,6 +1264,19 @@ export default function Shipments() {
                                                                 form.append("shipmentId", shipment.id);
                                                                 fetcher.submit(form, { method: "POST" });
                                                             }
+                                                        }}
+                                                        loading={fetcher.state === 'submitting'}
+                                                    />
+                                                </Tooltip>
+                                                <Tooltip content="Teslimat Durumu Sorgula">
+                                                    <Button
+                                                        size="micro"
+                                                        icon={CheckIcon}
+                                                        onClick={() => {
+                                                            const form = new FormData();
+                                                            form.append("intent", "checkDeliveryStatus");
+                                                            form.append("shipmentId", shipment.id);
+                                                            fetcher.submit(form, { method: "POST" });
                                                         }}
                                                         loading={fetcher.state === 'submitting'}
                                                     />
