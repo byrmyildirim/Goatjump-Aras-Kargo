@@ -1102,29 +1102,33 @@ export default function Shipments() {
                                 {orders.length === 0 ? (
                                     <Text as="p" tone="subdued">Gönderilecek sipariş bulunamadı.</Text>
                                 ) : (
-                                    <BlockStack gap="300">
-                                        {orders.map((item: any) => {
-                                            const { id, name, createdAt, displayFulfillmentStatus, shippingAddress } = item;
-                                            return (
-                                                <div
-                                                    key={id}
-                                                    className="gj-order-card"
-                                                    onClick={() => handleOrderClick(item)}
-                                                >
-                                                    <InlineStack align="space-between">
-                                                        <div>
-                                                            <span className="order-number">{name}</span>
-                                                            <span className="order-date"> - {new Date(createdAt).toLocaleDateString('tr-TR')}</span>
-                                                            <div className="customer-name">
-                                                                {shippingAddress?.firstName} {shippingAddress?.lastName} - {shippingAddress?.city}
-                                                            </div>
-                                                        </div>
-                                                        {getOrderStatusBadge(displayFulfillmentStatus)}
-                                                    </InlineStack>
-                                                </div>
-                                            );
-                                        })}
-                                    </BlockStack>
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <table className="gj-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Sipariş</th>
+                                                    <th>Tarih</th>
+                                                    <th>Müşteri</th>
+                                                    <th>Şehir</th>
+                                                    <th>Durum</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {orders.map((item: any) => {
+                                                    const { id, name, createdAt, displayFulfillmentStatus, shippingAddress } = item;
+                                                    return (
+                                                        <tr key={id} onClick={() => handleOrderClick(item)} style={{ cursor: 'pointer' }}>
+                                                            <td><span style={{ fontWeight: 700, color: 'var(--gj-primary)' }}>{name}</span></td>
+                                                            <td>{new Date(createdAt).toLocaleDateString('tr-TR')}</td>
+                                                            <td>{shippingAddress?.firstName} {shippingAddress?.lastName}</td>
+                                                            <td>{shippingAddress?.city}</td>
+                                                            <td>{getOrderStatusBadge(displayFulfillmentStatus)}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 )}
                             </div>
                         </div>

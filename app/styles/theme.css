@@ -283,6 +283,38 @@ strong {
   border-bottom: none;
 }
 
+/* ============== Compact Table ============== */
+.gj-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.gj-table th {
+  text-align: left;
+  padding: 12px 16px;
+  background-color: var(--gj-surface);
+  color: var(--gj-text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid var(--gj-border);
+}
+
+.gj-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gj-border);
+  color: var(--gj-text);
+  font-size: 0.875rem;
+}
+
+.gj-table tr:hover {
+  background-color: var(--gj-surface);
+}
+
+.gj-table tr:last-child td {
+  border-bottom: none;
+}
+
 /* ============== Order Card ============== */
 .gj-order-card {
   background: white;
