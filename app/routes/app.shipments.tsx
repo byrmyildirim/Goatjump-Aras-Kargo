@@ -1011,17 +1011,24 @@ export default function Shipments() {
             panelID: 'waiting-tracking-content',
         },
         {
-            id: 'all-shipped',
-            content: 'Gönderilen',
-            panelID: 'all-shipped-content',
+            id: 'in-transit',
+            content: 'Kargolananlar',
+            panelID: 'in-transit-content',
+        },
+        {
+            id: 'delivered',
+            content: 'Teslim Edilenler',
+            panelID: 'delivered-content',
         },
     ];
 
     const filteredShipments = localShipments.filter((shipment: any) => {
         if (selectedTab === 0) {
             return !shipment.trackingNumber;
+        } else if (selectedTab === 1) {
+            return !!shipment.trackingNumber && shipment.status !== 'DELIVERED';
         } else {
-            return !!shipment.trackingNumber;
+            return !!shipment.trackingNumber && shipment.status === 'DELIVERED';
         }
     });
 
