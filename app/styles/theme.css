@@ -314,9 +314,12 @@ strong {
 }
 
 .gj-col-no {
-  width: 40px;
+  width: 50px;
+  min-width: 50px;
   text-align: center !important;
-  color: var(--gj-text-muted) !important;
+  color: var(--gj-primary) !important;
+  font-weight: 700;
+  background-color: var(--gj-surface);
 }
 
 /* ============== Action Buttons ============== */

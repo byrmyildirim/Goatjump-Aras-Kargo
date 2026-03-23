@@ -1106,7 +1106,7 @@ export default function Shipments() {
                                         <table className="gj-table">
                                             <thead>
                                                 <tr>
-                                                    <th className="gj-col-no">No</th>
+                                                    <th className="gj-col-no">#</th>
                                                     <th>Tarih</th>
                                                     <th>Sipariş No</th>
                                                     <th>Müşteri Adı</th>
