@@ -1081,8 +1081,15 @@ export default function Shipments() {
                 if (isPdf) {
                     win.document.write(`<iframe src="data:application/pdf;base64,${data.barcodeBase64}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
                 } else {
-                    // Assume Image or Text (ZPL)
-                    win.document.write(`<pre>${atob(data.barcodeBase64)}</pre>`);
+                    try {
+                        // If it's base64, decode it. If not, atob will throw.
+                        const decoded = atob(data.barcodeBase64.trim());
+                        win.document.write(`<pre style="white-space: pre-wrap; word-break: break-all;">${decoded}</pre>`);
+                    } catch (e) {
+                        // Failed to decode (likely not base64 or contains high-range chars)
+                        // Just show the raw content
+                        win.document.write(`<pre style="white-space: pre-wrap; word-break: break-all;">${data.barcodeBase64}</pre>`);
+                    }
                 }
             }
         }
