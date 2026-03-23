@@ -1107,23 +1107,17 @@ export default function OrderDetail() {
                                             onChange={(val) => setEditedAddress({ ...editedAddress, address1: val })}
                                             autoComplete="off"
                                         />
-                                        <TextField
-                                            label="Adres 2"
-                                            value={editedAddress.address2 || ''}
-                                            onChange={(val) => setEditedAddress({ ...editedAddress, address2: val })}
-                                            autoComplete="off"
-                                        />
                                         <InlineStack gap="300">
                                             <TextField
-                                                label="Şehir (İlçe)"
-                                                value={editedAddress.city}
-                                                onChange={(val) => setEditedAddress({ ...editedAddress, city: val })}
+                                                label="İlçe"
+                                                value={editedAddress.address2 || ''}
+                                                onChange={(val) => setEditedAddress({ ...editedAddress, address2: val })}
                                                 autoComplete="off"
                                             />
                                             <TextField
                                                 label="İl"
-                                                value={editedAddress.province}
-                                                onChange={(val) => setEditedAddress({ ...editedAddress, province: val })}
+                                                value={editedAddress.city || editedAddress.province || ''}
+                                                onChange={(val) => setEditedAddress({ ...editedAddress, city: val })}
                                                 autoComplete="off"
                                             />
                                         </InlineStack>
