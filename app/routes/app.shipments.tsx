@@ -982,22 +982,22 @@ export default function Shipments() {
 
     const tabs = [
         {
-            id: 'all-shipped',
-            content: 'Gönderilen',
-            panelID: 'all-shipped-content',
-        },
-        {
             id: 'waiting-tracking',
             content: 'Takip No Bekleyenler',
             panelID: 'waiting-tracking-content',
+        },
+        {
+            id: 'all-shipped',
+            content: 'Gönderilen',
+            panelID: 'all-shipped-content',
         },
     ];
 
     const filteredShipments = localShipments.filter((shipment: any) => {
         if (selectedTab === 0) {
-            return !!shipment.trackingNumber;
-        } else {
             return !shipment.trackingNumber;
+        } else {
+            return !!shipment.trackingNumber;
         }
     });
 
