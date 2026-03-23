@@ -570,7 +570,14 @@ export const getDeliveryStatus = async (
         }
 
         // Text based check
-        if (responseText.includes('TESLİM EDİLDİ') || responseText.includes('TESLIM EDILDI') || responseText.includes('DELIVERED')) {
+        const normalizedResponse = responseText.toLocaleUpperCase('tr-TR');
+        if (
+            normalizedResponse.includes('TESLİM EDİLDİ') || 
+            normalizedResponse.includes('TESLIM EDILDI') || 
+            normalizedResponse.includes('DELIVERED') ||
+            normalizedResponse.includes('KARGO TESLİM EDİLMİŞTİR') ||
+            normalizedResponse.includes('TESLİM ALAN')
+        ) {
             return {
                 success: true,
                 status: 'DELIVERED',
