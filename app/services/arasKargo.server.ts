@@ -571,17 +571,31 @@ export const getDeliveryStatus = async (
 
         // Text based check
         const normalizedResponse = responseText.toLocaleUpperCase('tr-TR');
-        if (
+        const isDeliveredText = 
             normalizedResponse.includes('TESLİM EDİLDİ') || 
             normalizedResponse.includes('TESLIM EDILDI') || 
             normalizedResponse.includes('DELIVERED') ||
             normalizedResponse.includes('KARGO TESLİM EDİLMİŞTİR') ||
-            normalizedResponse.includes('TESLİM ALAN')
-        ) {
+            normalizedResponse.includes('TESLİM ALAN') ||
+            normalizedResponse.includes('TESLIM_TARIHI') ||
+            normalizedResponse.includes('DURUM_ACIKLAMASI>TESLİM');
+
+        if (isDeliveredText) {
             return {
                 success: true,
                 status: 'DELIVERED',
-                message: `Kargo teslim edildi (Metin Kontrolü)`,
+                message: `Kargo teslim edildi (Gelişmiş Metin Kontrolü)`,
+                rawResponse: responseText.substring(0, 2000),
+                trackingNumber: extractedTrackingNumber
+            };
+        }
+
+        // Check specifically for common status description fields
+        if (normalizedResponse.includes('TESLİM') && (normalizedResponse.includes('DURUM_ACIKLAMA') || normalizedResponse.includes('SON_DURUM'))) {
+            return {
+                success: true,
+                status: 'DELIVERED',
+                message: `Kargo teslim edildi (Durum Açıklama)`,
                 rawResponse: responseText.substring(0, 2000),
                 trackingNumber: extractedTrackingNumber
             };
