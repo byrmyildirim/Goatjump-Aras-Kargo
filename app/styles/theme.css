@@ -323,29 +323,25 @@ strong {
 }
 
 .gj-action-btn-container .Polaris-InlineStack {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  justify-content: flex-end !important;
+  display: flex !important;
   gap: 8px !important;
 }
 
 .gj-action-btn-container button,
-.gj-action-btn-container .gj-badge,
 .gj-action-btn-container a {
-  width: 100% !important;
+  width: 32px !important;
+  height: 32px !important;
   display: flex !important;
   justify-content: center !important;
   align-items: center !important;
-  margin: 0 !important;
+  padding: 0 !important;
   text-decoration: none;
 }
 
 .gj-action-btn-container .gj-badge {
-  padding: 8px 0;
-  box-sizing: border-box;
-}
-
-.gj-action-btn-container button {
-  height: 32px;
+  padding: 6px 12px;
+  margin-right: auto;
 }
 
 /* ============== Order Card ============== */

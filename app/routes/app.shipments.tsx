@@ -18,7 +18,16 @@ import {
     Checkbox,
     Banner,
     Tabs,
+    Tooltip,
+    Icon,
 } from "@shopify/polaris";
+import { 
+    SearchIcon, 
+    RefreshIcon, 
+    EditIcon, 
+    DeleteIcon, 
+    PrintIcon 
+} from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -1192,63 +1201,76 @@ export default function Shipments() {
                                                 )}
                                             </div>
                                             <div className="gj-action-btn-container" style={{ marginTop: '12px' }}>
-                                                <InlineStack gap="200" align="start" wrap>
+                                                <InlineStack gap="200" align="end" wrap>
                                                     {getStatusBadge(shipment.status)}
-                                                    <RemixLink to={`/app/orders/${shipment.orderId.split('/').pop()}`}>
-                                                        <Button size="micro" variant="secondary">Siparişe Git</Button>
-                                                    </RemixLink>
-                                                {!shipment.trackingNumber && (
+                                                    <Tooltip content="Siparişe Git">
+                                                        <RemixLink to={`/app/orders/${shipment.orderId.split('/').pop()}`}>
+                                                            <Button size="micro" variant="secondary" icon={SearchIcon} />
+                                                        </RemixLink>
+                                                    </Tooltip>
+                                                             {!shipment.trackingNumber && (
+                                                    <>
+                                                        <Tooltip content="Takip No Çek">
+                                                            <Button
+                                                                size="micro"
+                                                                icon={RefreshIcon}
+                                                                onClick={() => {
+                                                                    const form = new FormData();
+                                                                    form.append("intent", "fetchTrackingNumber");
+                                                                    form.append("shipmentId", shipment.id);
+                                                                    fetcher.submit(form, { method: "POST" });
+                                                                }}
+                                                                loading={fetcher.state === 'submitting'}
+                                                            />
+                                                        </Tooltip>
+                                                        <Tooltip content="Manuel No Gir">
+                                                            <Button
+                                                                size="micro"
+                                                                icon={EditIcon}
+                                                                onClick={() => {
+                                                                    const trackingNumber = prompt("Lütfen takip numarasını giriniz:");
+                                                                    if (trackingNumber) {
+                                                                        const form = new FormData();
+                                                                        form.append("intent", "updateTrackingNumber");
+                                                                        form.append("shipmentId", shipment.id);
+                                                                        form.append("trackingNumber", trackingNumber);
+                                                                        fetcher.submit(form, { method: "POST" });
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </Tooltip>
+                                                    </>
+                                                )}
+                                                <Tooltip content="Sil">
                                                     <Button
                                                         size="micro"
+                                                        variant="secondary"
+                                                        tone="critical"
+                                                        icon={DeleteIcon}
+                                                        onClick={() => {
+                                                            if (confirm("Bu gönderi kaydını silmek istediğinize emin misiniz?")) {
+                                                                const form = new FormData();
+                                                                form.append("intent", "deleteShipment");
+                                                                form.append("shipmentId", shipment.id);
+                                                                fetcher.submit(form, { method: "POST" });
+                                                            }
+                                                        }}
+                                                        loading={fetcher.state === 'submitting'}
+                                                    />
+                                                </Tooltip>
+                                                <Tooltip content="Barkod Yazdır">
+                                                    <Button
+                                                        size="micro"
+                                                        icon={PrintIcon}
                                                         onClick={() => {
                                                             const form = new FormData();
-                                                            form.append("intent", "updateStatus");
+                                                            form.append("intent", "getBarcode");
                                                             form.append("shipmentId", shipment.id);
                                                             fetcher.submit(form, { method: "POST" });
                                                         }}
                                                         loading={fetcher.state === 'submitting'}
-                                                    >
-                                                        Takip No Çek
-                                                    </Button>
-                                                )}
-                                                {!shipment.trackingNumber && (
-                                                    <Button
-                                                        size="micro"
-                                                        onClick={() => {
-                                                            setSelectedManualShipment(shipment);
-                                                            setManualTrackingNo("");
-                                                        }}
-                                                    >
-                                                        Manuel No
-                                                    </Button>
-                                                )}
-                                                <Button
-                                                    size="micro"
-                                                    tone="critical"
-                                                    onClick={() => {
-                                                        if (confirm("Bu gönderiyi silmek istediğinize emin misiniz?")) {
-                                                            const form = new FormData();
-                                                            form.append("intent", "deleteShipment");
-                                                            form.append("shipmentId", shipment.id);
-                                                            fetcher.submit(form, { method: "POST" });
-                                                        }
-                                                    }}
-                                                    loading={fetcher.state === 'submitting'}
-                                                >
-                                                    Sil
-                                                </Button>
-                                                <Button
-                                                    size="micro"
-                                                    onClick={() => {
-                                                        const form = new FormData();
-                                                        form.append("intent", "getBarcode");
-                                                        form.append("shipmentId", shipment.id);
-                                                        fetcher.submit(form, { method: "POST" });
-                                                    }}
-                                                    loading={fetcher.state === 'submitting'}
-                                                >
-                                                    Barkod
-                                                </Button>
+                                                    />
+                                                </Tooltip>
                                             </InlineStack>
                                         </div>
                                     </div>
