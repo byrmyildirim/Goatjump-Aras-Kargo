@@ -800,6 +800,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
     }
 
+    if (intent === "manualUpdateStatus") {
+        const shipmentId = formData.get("shipmentId") as string;
+        const newStatus = formData.get("newStatus") as string;
+        
+        await prisma.shipment.update({
+            where: { id: shipmentId },
+            data: { status: newStatus as any }
+        });
+
+        return json({ status: "success", message: "Gönderi durumu güncellendi." });
+    }
     if (intent === "updateStatus") {
         const shipmentId = formData.get("shipmentId") as string;
         const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
@@ -1006,10 +1017,14 @@ export default function Shipments() {
     const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
     const [pieceCount, setPieceCount] = useState<number>(1);
 
-    // Extract order ID from GID for navigation
     const [selectedManualShipment, setSelectedManualShipment] = useState<any | null>(null);
     const [manualTrackingNo, setManualTrackingNo] = useState("");
     const [selectedCargoCompany, setSelectedCargoCompany] = useState("Aras Kargo");
+    
+    // Manual status
+    const [manualStatusShipment, setManualStatusShipment] = useState<any | null>(null);
+    const [manualStatus, setManualStatus] = useState("IN_TRANSIT");
+
     const [selectedTab, setSelectedTab] = useState(0);
 
     const tabs = [
@@ -1239,7 +1254,16 @@ export default function Shipments() {
                                             </div>
                                             <div className="gj-action-btn-container" style={{ marginTop: '12px' }}>
                                                 <InlineStack gap="200" align="end" wrap>
-                                                    {getStatusBadge(shipment.status, !!shipment.trackingNumber)}
+                                                    <div
+                                                        onDoubleClick={() => {
+                                                            setManualStatusShipment(shipment);
+                                                            setManualStatus(shipment.status === 'DELIVERED' ? 'DELIVERED' : 'IN_TRANSIT');
+                                                        }}
+                                                        style={{ cursor: 'pointer' }}
+                                                        title="Durumu elle değiştirmek için çift tıklayın"
+                                                    >
+                                                        {getStatusBadge(shipment.status, !!shipment.trackingNumber)}
+                                                    </div>
                                                     <Tooltip content="Siparişe Git">
                                                         <RemixLink to={`/app/orders/${shipment.orderId.split('/').pop()}`}>
                                                             <Button size="micro" variant="secondary" icon={SearchIcon} />
@@ -1430,6 +1454,43 @@ export default function Shipments() {
                                     onChange={setManualTrackingNo}
                                     autoComplete="off"
                                     placeholder="Örn: 1234567890"
+                                />
+                            </BlockStack>
+                        </Modal.Section>
+                    </Modal>
+                )
+            }
+            {/* Manual Status Modal */}
+            {
+                manualStatusShipment && (
+                    <Modal
+                        open={!!manualStatusShipment}
+                        onClose={() => setManualStatusShipment(null)}
+                        title={`Manuel Durum Değiştir`}
+                        primaryAction={{
+                            content: 'Kaydet',
+                            onAction: () => {
+                                const form = new FormData();
+                                form.append("intent", "manualUpdateStatus");
+                                form.append("shipmentId", manualStatusShipment.id);
+                                form.append("newStatus", manualStatus);
+                                fetcher.submit(form, { method: "POST" });
+                                setManualStatusShipment(null);
+                            },
+                        }}
+                        secondaryActions={[{ content: 'İptal', onAction: () => setManualStatusShipment(null) }]}
+                    >
+                        <Modal.Section>
+                            <BlockStack gap="400">
+                                <Select
+                                    label="Yeni Durum"
+                                    options={[
+                                        { label: 'Hazırlanıyor / Kargoya Verildi', value: 'SENT_TO_ARAS' },
+                                        { label: 'Kargoda', value: 'IN_TRANSIT' },
+                                        { label: 'Teslim Edildi', value: 'DELIVERED' },
+                                    ]}
+                                    value={manualStatus}
+                                    onChange={setManualStatus}
                                 />
                             </BlockStack>
                         </Modal.Section>
