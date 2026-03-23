@@ -161,9 +161,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
         // 2. Get local shipments
         try {
+            const oneMonthAgo = new Date();
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
             localShipments = await prisma.shipment.findMany({
+                where: {
+                    createdAt: {
+                        gte: oneMonthAgo,
+                    },
+                },
                 orderBy: { createdAt: 'desc' },
-                take: 100
+                take: 1000 // Güvenlik amaçlı 1000 limiti, genelde 1 ayı kaplar
             });
 
             // Enrich with customer names from Shopify
