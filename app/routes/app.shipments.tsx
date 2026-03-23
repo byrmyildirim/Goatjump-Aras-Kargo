@@ -17,6 +17,7 @@ import {
     Select,
     Checkbox,
     Banner,
+    Tabs,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
@@ -977,6 +978,28 @@ export default function Shipments() {
     const [selectedManualShipment, setSelectedManualShipment] = useState<any | null>(null);
     const [manualTrackingNo, setManualTrackingNo] = useState("");
     const [selectedCargoCompany, setSelectedCargoCompany] = useState("Aras Kargo");
+    const [selectedTab, setSelectedTab] = useState(0);
+
+    const tabs = [
+        {
+            id: 'all-shipped',
+            content: 'Gönderilen',
+            panelID: 'all-shipped-content',
+        },
+        {
+            id: 'waiting-tracking',
+            content: 'Takip No Bekleyenler',
+            panelID: 'waiting-tracking-content',
+        },
+    ];
+
+    const filteredShipments = localShipments.filter((shipment: any) => {
+        if (selectedTab === 0) {
+            return !!shipment.trackingNumber;
+        } else {
+            return !shipment.trackingNumber;
+        }
+    });
 
     const handleOrderClick = (order: any) => {
         // Extract numeric ID from gid://shopify/Order/12345 format
@@ -1137,9 +1160,11 @@ export default function Shipments() {
                                     </Button>
                                 </InlineStack>
                             </div>
-                            <div className="gj-card-body">
-                                <BlockStack gap="300">
-                                    {localShipments.map((shipment: any) => (
+                            <div className="gj-card-body" style={{ padding: '0' }}>
+                                <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab} fitted />
+                                <div style={{ padding: '20px' }}>
+                                    <BlockStack gap="300">
+                                        {filteredShipments.map((shipment: any) => (
                                         <div key={shipment.id} className="gj-shipment-card">
                                             <div style={{ marginBottom: '8px' }}>
                                                 <Text as="p" fontWeight="bold">
@@ -1219,13 +1244,14 @@ export default function Shipments() {
                                             </InlineStack>
                                         </div>
                                     ))}
-                                    {localShipments.length === 0 && <Text as="p" tone="subdued">Henüz gönderi yok.</Text>}
+                                    {filteredShipments.length === 0 && <Text as="p" tone="subdued">Bu kategoride henüz gönderi yok.</Text>}
                                 </BlockStack>
                             </div>
                         </div>
-                    </Layout.Section>
-                </Layout>
-            </BlockStack >
+                    </div>
+                </Layout.Section>
+            </Layout>
+        </BlockStack >
 
             {/* Shipment Modal */}
             {
