@@ -83,12 +83,21 @@ const getStatusBadge = (status: string, hasTrackingNumber: boolean) => {
 };
 
 // Order status badge helper
-const getOrderStatusBadge = (status: string) => {
-    const isPartial = status === 'PARTIALLY_FULFILLED';
+const getOrderStatusBadge = (fulfillmentStatus: string, financialStatus: string) => {
+    const isPartial = fulfillmentStatus === 'PARTIALLY_FULFILLED';
+    const isPartiallyRefunded = financialStatus === 'PARTIALLY_REFUNDED';
+    
     return (
-        <span className={`gj-badge ${isPartial ? 'partially-fulfilled' : 'pending'}`}>
-            {isPartial ? 'Kısmi Tamamlandı' : 'Bekliyor'}
-        </span>
+        <div style={{ display: 'flex', gap: '5px' }}>
+            <span className={`gj-badge ${isPartial ? 'partially-fulfilled' : 'pending'}`}>
+                {isPartial ? 'Kısmi Tamamlandı' : 'Bekliyor'}
+            </span>
+            {isPartiallyRefunded && (
+                <span className="gj-badge cancelled" style={{ backgroundColor: '#ffea8a', color: '#5c3b00' }}>
+                    Kısmen İade
+                </span>
+            )}
+        </div>
     );
 };
 
@@ -107,13 +116,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             const response = await admin.graphql(
                 `#graphql
               query getUnfulfilledOrders {
-                orders(first: 50, query: "(fulfillment_status:unfulfilled OR fulfillment_status:partial) AND (financial_status:paid) AND (status:open)") {
+                orders(first: 50, query: "(fulfillment_status:unfulfilled OR fulfillment_status:partial) AND (financial_status:paid OR financial_status:partially_refunded) AND (status:open)") {
                   edges {
                     node {
                             id
                             name
                             createdAt
                             displayFulfillmentStatus
+                            displayFinancialStatus
                       shippingAddress {
                                 firstName
                                 lastName
@@ -1176,14 +1186,14 @@ export default function Shipments() {
                                             </thead>
                                             <tbody>
                                                 {orders.map((item: any, index: number) => {
-                                                    const { id, name, createdAt, displayFulfillmentStatus, shippingAddress } = item;
+                                                    const { id, name, createdAt, shippingAddress } = item;
                                                     return (
                                                         <tr key={id} onClick={() => handleOrderClick(item)} style={{ cursor: 'pointer' }}>
                                                             <td className="gj-col-no">{index + 1}</td>
                                                             <td>{new Date(createdAt).toLocaleDateString('tr-TR')}</td>
                                                             <td><span style={{ fontWeight: 700, color: 'var(--gj-primary)' }}>{name}</span></td>
                                                             <td>{shippingAddress?.firstName} {shippingAddress?.lastName}</td>
-                                                            <td>{getOrderStatusBadge(displayFulfillmentStatus)}</td>
+                                                            <td>{getOrderStatusBadge(item.displayFulfillmentStatus, item.displayFinancialStatus)}</td>
                                                         </tr>
                                                     );
                                                 })}
