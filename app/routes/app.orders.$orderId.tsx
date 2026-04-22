@@ -601,6 +601,8 @@ export default function OrderDetail() {
     const [pieceCount, setPieceCount] = useState<number>(1);
     const [stagedPackages, setStagedPackages] = useState<StagedPackage[]>([]);
     const [showLabelModal, setShowLabelModal] = useState(false);
+    const [isAdditionalMode, setIsAdditionalMode] = useState(false);
+
     const [currentLabelData, setCurrentLabelData] = useState<{
         mok: string;
         supplier: { name: string };
@@ -819,26 +821,37 @@ export default function OrderDetail() {
                         {/* Line Items Selection */}
                         <Card>
                             <BlockStack gap="400">
-                                <Text as="h2" variant="headingMd">Ürünler</Text>
+                                <InlineStack align="space-between">
+                                    <Text as="h2" variant="headingMd">Ürünler</Text>
+                                    <Button
+                                        variant="plain"
+                                        pressed={isAdditionalMode}
+                                        onClick={() => setIsAdditionalMode(!isAdditionalMode)}
+                                    >
+                                        {isAdditionalMode ? 'Ek Barkod Modunu Kapat' : 'Ek Barkod Oluştur'}
+                                    </Button>
+                                </InlineStack>
+
                                 <Divider />
 
                                 {lineItems.map((item) => (
                                     <Box key={item.id} padding="200" borderRadius="200" background="bg-surface-secondary">
                                         <InlineStack align="space-between" blockAlign="center" gap="400">
                                             <InlineStack gap="300" blockAlign="center">
-                                                <Checkbox
-                                                    label=""
-                                                    checked={selectedItems[item.id] || false}
-                                                    onChange={(checked) => {
-                                                        setSelectedItems(prev => ({ ...prev, [item.id]: checked }));
-                                                        if (!checked) {
-                                                            setSelectedQuantities(prev => ({ ...prev, [item.id]: 0 }));
-                                                        } else {
-                                                            setSelectedQuantities(prev => ({ ...prev, [item.id]: item.fulfillableQuantity }));
-                                                        }
-                                                    }}
-                                                    disabled={item.fulfillableQuantity === 0}
-                                                />
+                                                    <Checkbox
+                                                        label=""
+                                                        checked={selectedItems[item.id] || false}
+                                                        onChange={(checked) => {
+                                                            setSelectedItems(prev => ({ ...prev, [item.id]: checked }));
+                                                            if (!checked) {
+                                                                setSelectedQuantities(prev => ({ ...prev, [item.id]: 0 }));
+                                                            } else {
+                                                                setSelectedQuantities(prev => ({ ...prev, [item.id]: isAdditionalMode ? item.quantity : item.fulfillableQuantity }));
+                                                            }
+                                                        }}
+                                                        disabled={item.fulfillableQuantity === 0 && !isAdditionalMode}
+                                                    />
+
                                                 <BlockStack gap="100">
                                                     <Text as="span" variant="bodyMd" fontWeight="semibold">{item.title}</Text>
                                                     <Text as="span" variant="bodySm" tone="subdued">SKU: {item.sku || '-'}</Text>
@@ -854,18 +867,21 @@ export default function OrderDetail() {
                                                             type="number"
                                                             value={String(selectedQuantities[item.id] || 0)}
                                                             onChange={(val) => {
-                                                                const num = Math.min(Math.max(0, parseInt(val) || 0), item.fulfillableQuantity);
+                                                                const maxQty = isAdditionalMode ? item.quantity : item.fulfillableQuantity;
+                                                                const num = Math.min(Math.max(0, parseInt(val) || 0), maxQty);
                                                                 setSelectedQuantities(prev => ({ ...prev, [item.id]: num }));
                                                             }}
                                                             autoComplete="off"
                                                             min={0}
-                                                            max={item.fulfillableQuantity}
+                                                            max={isAdditionalMode ? item.quantity : item.fulfillableQuantity}
                                                         />
+
                                                     </div>
                                                 )}
                                                 <Text as="span" variant="bodySm" tone="subdued">
-                                                    / {item.fulfillableQuantity} adet kaldı
+                                                    / {isAdditionalMode ? item.quantity : item.fulfillableQuantity} {isAdditionalMode ? 'adet (toplam)' : 'adet kaldı'}
                                                 </Text>
+
                                             </InlineStack>
                                         </InlineStack>
                                     </Box>
@@ -987,6 +1003,25 @@ export default function OrderDetail() {
                                                         </Button>
                                                         <Button
                                                             onClick={() => {
+                                                                setIsAdditionalMode(true);
+                                                                const newSelection: Record<string, boolean> = {};
+                                                                const newQuantities: Record<string, number> = {};
+                                                                shipment.items.forEach((item: any) => {
+                                                                    newSelection[item.lineItemId] = true;
+                                                                    newQuantities[item.lineItemId] = item.quantity;
+                                                                });
+                                                                setSelectedItems(newSelection);
+                                                                setSelectedQuantities(newQuantities);
+                                                                setSelectedSupplierId(shipment.supplierId);
+                                                                // Scroll up to show items
+                                                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                            }}
+                                                            variant="plain"
+                                                        >
+                                                            Aynı Bilgilerle Ek Barkod
+                                                        </Button>
+                                                        <Button
+                                                            onClick={() => {
                                                                 setCurrentLabelData({
                                                                     mok: shipment.mok,
                                                                     supplier: { name: shipment.supplierName },
@@ -999,6 +1034,7 @@ export default function OrderDetail() {
                                                         >
                                                             Fiş Görüntüle
                                                         </Button>
+
                                                     </InlineStack>
                                                 </InlineStack>
                                                 <Text as="p" variant="bodySm" tone="subdued">
@@ -1165,23 +1201,43 @@ export default function OrderDetail() {
                                             <BlockStack gap="100">
                                                 <Text as="span" fontWeight="semibold">{shipment.supplierName}</Text>
                                                 <Text as="span" variant="bodySm">MÖK: {shipment.mok}</Text>
-                                                 <InlineStack align="space-between" blockAlign="center">
-                                                    <Badge>{shipment.status}</Badge>
-                                                    <Button
-                                                        onClick={() => {
-                                                            setCurrentLabelData({
-                                                                mok: shipment.mok,
-                                                                supplier: { name: shipment.supplierName },
-                                                                items: shipment.items.map((i: any) => ({ title: i.title, quantity: i.quantity }))
-                                                            });
-                                                            setPieceCount(shipment.pieceCount);
-                                                            setShowLabelModal(true);
-                                                        }}
-                                                        variant="plain"
-                                                    >
-                                                        Fiş Görüntüle
-                                                    </Button>
-                                                </InlineStack>
+                                                     <InlineStack align="space-between" blockAlign="center">
+                                                        <Badge>{shipment.status}</Badge>
+                                                        <InlineStack gap="100">
+                                                            <Button
+                                                                onClick={() => {
+                                                                    setIsAdditionalMode(true);
+                                                                    const newSelection: Record<string, boolean> = {};
+                                                                    const newQuantities: Record<string, number> = {};
+                                                                    shipment.items.forEach((item: any) => {
+                                                                        newSelection[item.lineItemId] = true;
+                                                                        newQuantities[item.lineItemId] = item.quantity;
+                                                                    });
+                                                                    setSelectedItems(newSelection);
+                                                                    setSelectedQuantities(newQuantities);
+                                                                    setSelectedSupplierId(shipment.supplierId);
+                                                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                                }}
+                                                                variant="plain"
+                                                            >
+                                                                Tekrarla
+                                                            </Button>
+                                                            <Button
+                                                                onClick={() => {
+                                                                    setCurrentLabelData({
+                                                                        mok: shipment.mok,
+                                                                        supplier: { name: shipment.supplierName },
+                                                                        items: shipment.items.map((i: any) => ({ title: i.title, quantity: i.quantity }))
+                                                                    });
+                                                                    setPieceCount(shipment.pieceCount);
+                                                                    setShowLabelModal(true);
+                                                                }}
+                                                                variant="plain"
+                                                            >
+                                                                Fiş
+                                                            </Button>
+                                                        </InlineStack>
+                                                    </InlineStack>
                                             </BlockStack>
                                         </Box>
                                     ))}
