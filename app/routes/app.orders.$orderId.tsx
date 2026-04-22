@@ -383,10 +383,14 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                     continue;
                 }
 
-                // Save Shipment to DB
+                // Save Shipment to DB (Upsert to handle both staged and manual MOKs)
                 try {
-                    await prisma.shipment.create({
-                        data: {
+                    await prisma.shipment.upsert({
+                        where: { mok: pkg.mok },
+                        update: {
+                            status: "SENT_TO_ARAS"
+                        },
+                        create: {
                             orderId: orderId!,
                             orderNumber: orderName,
                             mok: pkg.mok,
@@ -407,8 +411,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                     });
                 } catch (dbError) {
                     console.error("DB Save Error:", dbError);
-                    // Continue to fulfill even if DB fails? Or fail?
-                    // Better to continue to ensure Shopify sync.
                 }
 
                 // Create fulfillment
@@ -669,16 +671,27 @@ export default function OrderDetail() {
                         quantity: selectedQuantities[node.id]
                     }));
 
-                setStagedPackages(prev => [...prev, {
-                    supplier: data.supplier,
-                    items: itemsWithOriginalIds,
-                    mok: data.mok,
-                    pieceCount
-                }]);
+                // Add to staged packages ONLY if not in Additional Mode
+                // Additional barcodes are independent of Shopify fulfillment queue
+                if (!isAdditionalMode) {
+                    setStagedPackages(prev => [...prev, {
+                        supplier: data.supplier,
+                        items: itemsWithOriginalIds,
+                        mok: data.mok,
+                        pieceCount
+                    }]);
+                }
 
-                // Reset selection
-                setSelectedItems({});
-                setSelectedQuantities({});
+                // Reset selection if it was an additional barcode
+                if (isAdditionalMode) {
+                    setSelectedItems({});
+                    setSelectedQuantities({});
+                    setIsAdditionalMode(false); // Mode exit after success
+                } else {
+                    // Reset selection for normal flow
+                    setSelectedItems({});
+                    setSelectedQuantities({});
+                }
             } else {
                 alert(data.message);
             }
@@ -914,8 +927,9 @@ export default function OrderDetail() {
                                         onClick={handleStagePackage}
                                         loading={fetcher.state === 'submitting'}
                                     >
-                                        Paketi Hazırla
+                                        {isAdditionalMode ? 'Ek Barkod Oluştur' : 'Paketi Hazırla'}
                                     </Button>
+
                                     <Button
                                         variant="plain"
                                         onClick={() => setShowManualMokModal(true)}
