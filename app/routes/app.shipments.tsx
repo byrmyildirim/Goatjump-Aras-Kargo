@@ -504,7 +504,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             const activeFulfillments = fulfillments.filter((f: any) => f.status !== 'CANCELLED');
 
             if (activeFulfillments.length === 0) {
-                console.log("No active fulfillment, attempting creation...");
+                console.log("No active fulfillment, attempting creation with tracking number...");
                 return await createShopifyFulfillment(shipment, shipmentItems, trackingNumber, admin);
             }
 
@@ -823,18 +823,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
     if (intent === "updateStatus") {
         const shipmentId = formData.get("shipmentId") as string;
-        const shipment = await prisma.shipment.findUnique({ where: { id: shipmentId } });
+        const shipment = await prisma.shipment.findUnique({ 
+            where: { id: shipmentId },
+            include: { items: true }
+        });
         if (!shipment) return json({ status: "error", message: "Gönderi bulunamadı." });
 
         const settings = await prisma.arasKargoSettings.findFirst();
         if (!settings) return json({ status: "error", message: "Ayarlar bulunamadı." });
 
-        const result = await checkAndUpdateShipment(shipment, settings, admin);
+        const result = await getShipmentStatus(shipment.mok, settings);
 
-        if (result.success) {
-            return json({ status: "success", message: `Takip no güncellendi: ${result.trackingNumber}` });
+        if (result.success && result.trackingNumber) {
+            // Automatically update DB and Shopify if tracking number is found
+            const syncResult = await updateShipmentAndShopify(shipment, result.trackingNumber, admin);
+            if (syncResult.success) {
+                return json({ status: "success", message: `Takip no güncellendi ve Shopify'a işlendi: ${result.trackingNumber}` });
+            } else {
+                return json({ status: "success", message: `Takip no bulundu (${result.trackingNumber}) ancak Shopify güncellenemedi: ${syncResult.message}` });
+            }
         } else {
-            return json({ status: "error", message: result.message || "Takip bilgisi alınamadı." });
+            return json({ status: "error", message: result.message || "Henüz takip bilgisi oluşmamış." });
         }
     }
 
@@ -1324,9 +1333,11 @@ export default function Shipments() {
                                                         loading={fetcher.state === 'submitting'}
                                                     />
                                                 </Tooltip>
-                                                <Tooltip content="Teslimat Durumu Sorgula">
+                                                <Tooltip content="Teslimat Sorgula & Kapat">
                                                     <Button
                                                         size="micro"
+                                                        variant="primary"
+                                                        tone="success"
                                                         icon={CheckIcon}
                                                         onClick={() => {
                                                             const form = new FormData();
@@ -1335,7 +1346,9 @@ export default function Shipments() {
                                                             fetcher.submit(form, { method: "POST" });
                                                         }}
                                                         loading={fetcher.state === 'submitting'}
-                                                    />
+                                                    >
+                                                        Teslimat Sorgula
+                                                    </Button>
                                                 </Tooltip>
                                                 <Tooltip content="Barkod Yazdır">
                                                     <Button

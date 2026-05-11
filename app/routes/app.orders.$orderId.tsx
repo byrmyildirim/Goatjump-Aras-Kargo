@@ -489,24 +489,27 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                     }
                 });
 
-                // 2. Create Fulfillment in Shopify if not already fulfilled
-                // We need to find the fulfillment order first.
-                // This logic mirrors createFulfillment but for a single shipment.
-                const foResponse = await admin.graphql(
-                    `#graphql
-                    query getFulfillmentOrder($id: ID!) {
-                        order(id: $id) {
-                            fulfillmentOrders(first: 10) {
-                                edges {
-                                    node {
-                                        id
-                                        status
-                                        lineItems(first: 50) {
-                                            edges {
-                                                node {
-                                                    id
-                                                    lineItem {
+                // 2. Automate Shopify Fulfillment
+                // Logic moved to a reusable pattern mirroring shipments.tsx logic for consistency
+                try {
+                    // Fetch shipment items from DB to match
+                    const dbItems = await prisma.shipmentItem.findMany({ where: { shipmentId: shipment.id } });
+                    
+                    // Call the fulfillment logic (we'll fetch fulfillment orders again to be safe)
+                    const foResponse = await admin.graphql(
+                        `#graphql
+                        query getFulfillmentOrder($id: ID!) {
+                            order(id: $id) {
+                                fulfillmentOrders(first: 10) {
+                                    edges {
+                                        node {
+                                            id
+                                            status
+                                            lineItems(first: 50) {
+                                                edges {
+                                                    node {
                                                         id
+                                                        lineItem { id }
                                                     }
                                                 }
                                             }
@@ -514,71 +517,57 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                                     }
                                 }
                             }
-                        }
-                    }`,
-                    { variables: { id: `gid://shopify/Order/${orderId}` } }
-                );
+                        }`,
+                        { variables: { id: `gid://shopify/Order/${orderId}` } }
+                    );
 
-                const foData = await foResponse.json();
-                const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
-                const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
-                    fo.status === 'OPEN' || fo.status === 'IN_PROGRESS' || fo.status === 'SCHEDULED'
-                );
+                    const foData = await foResponse.json();
+                    const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
+                    const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
+                        ['OPEN', 'IN_PROGRESS', 'SCHEDULED'].includes(fo.status)
+                    );
 
-                if (fulfillmentOrder) {
-                    // Match items
-                    const dbItems = await prisma.shipmentItem.findMany({ where: { shipmentId: shipment.id } });
+                    if (fulfillmentOrder) {
+                        const fulfillmentOrderLineItems = dbItems.map((item) => {
+                            const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
+                                edge.node.lineItem.id === item.lineItemId || edge.node.lineItem.id === `gid://shopify/LineItem/${item.lineItemId}`
+                            );
+                            return foLineItem ? { id: foLineItem.node.id, quantity: item.quantity } : null;
+                        }).filter(Boolean);
 
-                    const fulfillmentOrderLineItems = dbItems.map((item) => {
-                        const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
-                            edge.node.lineItem.id === item.lineItemId || edge.node.lineItem.id === `gid://shopify/LineItem/${item.lineItemId}`
-                        );
-                        if (foLineItem) {
-                            return {
-                                id: foLineItem.node.id,
-                                quantity: item.quantity
-                            };
-                        }
-                        return null;
-                    }).filter(Boolean);
-
-                    if (fulfillmentOrderLineItems.length > 0) {
-                        const fulfillResponse = await admin.graphql(
-                            `#graphql
-                            mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
-                                fulfillmentCreateV2(fulfillment: $fulfillment) {
-                                    fulfillment {
-                                        id
-                                        status
+                        if (fulfillmentOrderLineItems.length > 0) {
+                            await admin.graphql(
+                                `#graphql
+                                mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
+                                    fulfillmentCreateV2(fulfillment: $fulfillment) {
+                                        fulfillment { id status }
+                                        userErrors { field message }
                                     }
-                                    userErrors {
-                                        field
-                                        message
-                                    }
-                                }
-                            }`,
-                            {
-                                variables: {
-                                    fulfillment: {
-                                        lineItemsByFulfillmentOrder: [{
-                                            fulfillmentOrderId: fulfillmentOrder.id,
-                                            fulfillmentOrderLineItems
-                                        }],
-                                        trackingInfo: {
-                                            company: "Aras Kargo",
-                                            number: statusResult.trackingNumber,
-                                            url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${statusResult.trackingNumber}`
-                                        },
-                                        notifyCustomer: true
+                                }`,
+                                {
+                                    variables: {
+                                        fulfillment: {
+                                            lineItemsByFulfillmentOrder: [{
+                                                fulfillmentOrderId: fulfillmentOrder.id,
+                                                fulfillmentOrderLineItems
+                                            }],
+                                            trackingInfo: {
+                                                company: "Aras Kargo",
+                                                number: statusResult.trackingNumber,
+                                                url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${statusResult.trackingNumber}`
+                                            },
+                                            notifyCustomer: true
+                                        }
                                     }
                                 }
-                            }
-                        );
-                        await fulfillResponse.json();
+                            );
+                        }
                     }
+                    return json({ status: "success", message: `Takip no güncellendi ve Shopify'a işlendi: ${statusResult.trackingNumber}` });
+                } catch (shopifyErr) {
+                    console.error("Shopify Auto-Fulfill Error:", shopifyErr);
+                    return json({ status: "success", message: `Takip no güncellendi: ${statusResult.trackingNumber} (Shopify'a işlenirken hata oluştu)` });
                 }
-
-                return json({ status: "success", message: `Takip no güncellendi: ${statusResult.trackingNumber}` });
             }
 
             return json({ status: "info", message: `Durum: ${statusResult.trackingNumber ? "Kargoda (Takip No Var)" : "Bilinmiyor"}` });
@@ -962,14 +951,17 @@ export default function OrderDetail() {
                                         </Box>
                                     ))}
 
+                                    <Banner tone="info">
+                                        <p>Paketler hazırlandı. Aras Kargo takip numarasını oluşturduğunda otomatik olarak Shopify'a gönderilecektir.</p>
+                                    </Banner>
+
                                     <Button
-                                        variant="primary"
-                                        tone="success"
+                                        variant="plain"
                                         onClick={handleCreateFulfillment}
                                         loading={fetcher.state === 'submitting'}
                                         fullWidth
                                     >
-                                        Shopify'a Gönder ({`${stagedPackages.length} paket`})
+                                        Manuel Shopify'a Gönder ({`${stagedPackages.length} paket`})
                                     </Button>
                                 </BlockStack>
                             </Card>
