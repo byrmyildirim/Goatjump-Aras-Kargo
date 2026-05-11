@@ -243,8 +243,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
             return json({ status: "error", message: result.message });
         }
 
-        // Save to database
-        await prisma.shipment.create({
+        // 3. Save to database
+        const shipment = await prisma.shipment.create({
             data: {
                 orderId: orderId!,
                 orderNumber: orderName,
@@ -262,12 +262,79 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                         quantity: i.quantity
                     }))
                 }
-            }
+            },
+            include: { items: true }
         });
+
+        // 4. Automatically trigger Shopify Fulfillment (Delayed Fulfillment Protection)
+        try {
+            const foResponse = await admin.graphql(
+                `#graphql
+                query getFO($id: ID!) {
+                    order(id: $id) {
+                        fulfillmentOrders(first: 10) {
+                            edges {
+                                node {
+                                    id
+                                    status
+                                    lineItems(first: 50) {
+                                        edges {
+                                            node {
+                                                id
+                                                lineItem { id }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }`,
+                { variables: { id: `gid://shopify/Order/${orderId}` } }
+            );
+            const foData = await foResponse.json();
+            const fulfillmentOrder = foData.data?.order?.fulfillmentOrders?.edges
+                ?.map((e: any) => e.node)
+                .find((fo: any) => ['OPEN', 'IN_PROGRESS', 'SCHEDULED'].includes(fo.status));
+
+            if (fulfillmentOrder) {
+                const fulfillmentOrderLineItems = items.map((item: any) => {
+                    const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
+                        edge.node.lineItem.id === item.id || edge.node.lineItem.id === `gid://shopify/LineItem/${item.id}`
+                    );
+                    return foLineItem ? { id: foLineItem.node.id, quantity: item.quantity } : null;
+                }).filter(Boolean);
+
+                if (fulfillmentOrderLineItems.length > 0) {
+                    await admin.graphql(
+                        `#graphql
+                        mutation fulfill($fulfillment: FulfillmentV2Input!) {
+                            fulfillmentCreateV2(fulfillment: $fulfillment) {
+                                fulfillment { id }
+                                userErrors { message }
+                            }
+                        }`,
+                        {
+                            variables: {
+                                fulfillment: {
+                                    lineItemsByFulfillmentOrder: [{
+                                        fulfillmentOrderId: fulfillmentOrder.id,
+                                        fulfillmentOrderLineItems
+                                    }],
+                                    notifyCustomer: false // Don't notify yet, no tracking info
+                                }
+                            }
+                        }
+                    );
+                }
+            }
+        } catch (fErr) {
+            console.error("Auto-fulfillment error during staging:", fErr);
+        }
 
         return json({
             status: "success",
-            message: `Paket hazırlandı! MÖK: ${result.mok}`,
+            message: `Paket hazırlandı ve Shopify'a işlendi! MÖK: ${result.mok}`,
             mok: result.mok,
             supplier: {
                 id: supplier.id,
@@ -489,17 +556,27 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                     }
                 });
 
-                // 2. Automate Shopify Fulfillment
-                // Logic moved to a reusable pattern mirroring shipments.tsx logic for consistency
+                // 2. Automate Shopify Fulfillment Update or Create
                 try {
-                    // Fetch shipment items from DB to match
+                    // Fetch shipment items and order fulfillments
                     const dbItems = await prisma.shipmentItem.findMany({ where: { shipmentId: shipment.id } });
                     
-                    // Call the fulfillment logic (we'll fetch fulfillment orders again to be safe)
-                    const foResponse = await admin.graphql(
+                    const fulfillmentsResponse = await admin.graphql(
                         `#graphql
-                        query getFulfillmentOrder($id: ID!) {
+                        query getFulfillments($id: ID!) {
                             order(id: $id) {
+                                fulfillments(first: 20) {
+                                    id
+                                    status
+                                    fulfillmentLineItems(first: 50) {
+                                        edges {
+                                            node {
+                                                lineItem { id }
+                                                quantity
+                                            }
+                                        }
+                                    }
+                                }
                                 fulfillmentOrders(first: 10) {
                                     edges {
                                         node {
@@ -521,56 +598,184 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                         { variables: { id: `gid://shopify/Order/${orderId}` } }
                     );
 
-                    const foData = await foResponse.json();
-                    const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
-                    const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
-                        ['OPEN', 'IN_PROGRESS', 'SCHEDULED'].includes(fo.status)
-                    );
+                    const fulfillmentsData = await fulfillmentsResponse.json();
+                    const orderFulfillments = fulfillmentsData.data?.order?.fulfillments || [];
+                    const fulfillmentOrders = fulfillmentsData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
 
-                    if (fulfillmentOrder) {
-                        const fulfillmentOrderLineItems = dbItems.map((item) => {
-                            const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
-                                edge.node.lineItem.id === item.lineItemId || edge.node.lineItem.id === `gid://shopify/LineItem/${item.lineItemId}`
-                            );
-                            return foLineItem ? { id: foLineItem.node.id, quantity: item.quantity } : null;
-                        }).filter(Boolean);
+                    // Try to find an existing fulfillment that matches this shipment
+                    const existingFulfillment = orderFulfillments.find((f: any) => {
+                        return dbItems.every(si => 
+                            f.fulfillmentLineItems.edges.some((edge: any) => 
+                                (edge.node.lineItem.id === si.lineItemId || edge.node.lineItem.id === `gid://shopify/LineItem/${si.lineItemId}`) && 
+                                edge.node.quantity === si.quantity
+                            )
+                        );
+                    });
 
-                        if (fulfillmentOrderLineItems.length > 0) {
-                            await admin.graphql(
-                                `#graphql
-                                mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
-                                    fulfillmentCreateV2(fulfillment: $fulfillment) {
-                                        fulfillment { id status }
-                                        userErrors { field message }
-                                    }
-                                }`,
-                                {
-                                    variables: {
-                                        fulfillment: {
-                                            lineItemsByFulfillmentOrder: [{
-                                                fulfillmentOrderId: fulfillmentOrder.id,
-                                                fulfillmentOrderLineItems
-                                            }],
-                                            trackingInfo: {
-                                                company: "Aras Kargo",
-                                                number: statusResult.trackingNumber,
-                                                url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${statusResult.trackingNumber}`
-                                            },
-                                            notifyCustomer: true
-                                        }
+                    if (existingFulfillment) {
+                        // UPDATE existing fulfillment tracking info
+                        await admin.graphql(
+                            `#graphql
+                            mutation trackingUpdate($fulfillmentId: ID!, $trackingInfo: FulfillmentTrackingInput!) {
+                                fulfillmentTrackingInfoUpdateV2(fulfillmentId: $fulfillmentId, trackingInfo: $trackingInfo, notifyCustomer: true) {
+                                    fulfillment { id }
+                                    userErrors { message }
+                                }
+                            }`,
+                            {
+                                variables: {
+                                    fulfillmentId: existingFulfillment.id,
+                                    trackingInfo: {
+                                        company: "Aras Kargo",
+                                        number: statusResult.trackingNumber,
+                                        url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${statusResult.trackingNumber}`
                                     }
                                 }
-                            );
+                            }
+                        );
+                    } else {
+                        // CREATE new fulfillment if not found
+                        const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
+                            ['OPEN', 'IN_PROGRESS', 'SCHEDULED'].includes(fo.status)
+                        );
+
+                        if (fulfillmentOrder) {
+                            const fulfillmentOrderLineItems = dbItems.map((item) => {
+                                const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
+                                    edge.node.lineItem.id === item.lineItemId || edge.node.lineItem.id === `gid://shopify/LineItem/${item.lineItemId}`
+                                );
+                                return foLineItem ? { id: foLineItem.node.id, quantity: item.quantity } : null;
+                            }).filter(Boolean);
+
+                            if (fulfillmentOrderLineItems.length > 0) {
+                                await admin.graphql(
+                                    `#graphql
+                                    mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
+                                        fulfillmentCreateV2(fulfillment: $fulfillment) {
+                                            fulfillment { id }
+                                            userErrors { message }
+                                        }
+                                    }`,
+                                    {
+                                        variables: {
+                                            fulfillment: {
+                                                lineItemsByFulfillmentOrder: [{
+                                                    fulfillmentOrderId: fulfillmentOrder.id,
+                                                    fulfillmentOrderLineItems
+                                                }],
+                                                trackingInfo: {
+                                                    company: "Aras Kargo",
+                                                    number: statusResult.trackingNumber,
+                                                    url: `http://kargotakip.araskargo.com.tr/mainpage.aspx?code=${statusResult.trackingNumber}`
+                                                },
+                                                notifyCustomer: true
+                                            }
+                                        }
+                                    }
+                                );
+                            }
                         }
                     }
                     return json({ status: "success", message: `Takip no güncellendi ve Shopify'a işlendi: ${statusResult.trackingNumber}` });
                 } catch (shopifyErr) {
-                    console.error("Shopify Auto-Fulfill Error:", shopifyErr);
-                    return json({ status: "success", message: `Takip no güncellendi: ${statusResult.trackingNumber} (Shopify'a işlenirken hata oluştu)` });
+                    console.error("Shopify Sync Error:", shopifyErr);
+                    return json({ status: "success", message: `Takip no güncellendi: ${statusResult.trackingNumber} (Shopify senkronizasyon hatası)` });
                 }
             }
 
             return json({ status: "info", message: `Durum: ${statusResult.trackingNumber ? "Kargoda (Takip No Var)" : "Bilinmiyor"}` });
+
+        } catch (error) {
+            return json({ status: "error", message: (error as Error).message });
+        }
+    }
+
+    if (intent === "syncShipmentWithShopify") {
+        const shipmentId = formData.get("shipmentId") as string;
+        const shipment = await prisma.shipment.findUnique({
+            where: { id: shipmentId },
+            include: { items: true }
+        });
+
+        if (!shipment) {
+            return json({ status: "error", message: "Kayıt bulunamadı." });
+        }
+
+        try {
+            const foResponse = await admin.graphql(
+                `#graphql
+                query getFulfillmentOrder($id: ID!) {
+                    order(id: $id) {
+                        fulfillmentOrders(first: 10) {
+                            edges {
+                                node {
+                                    id
+                                    status
+                                    lineItems(first: 50) {
+                                        edges {
+                                            node {
+                                                id
+                                                lineItem { id }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }`,
+                { variables: { id: `gid://shopify/Order/${orderId}` } }
+            );
+
+            const foData = await foResponse.json();
+            const fulfillmentOrders = foData.data?.order?.fulfillmentOrders?.edges?.map((e: any) => e.node) || [];
+            const fulfillmentOrder = fulfillmentOrders.find((fo: any) =>
+                ['OPEN', 'IN_PROGRESS', 'SCHEDULED'].includes(fo.status)
+            );
+
+            if (!fulfillmentOrder) {
+                return json({ status: "error", message: "İşlenebilir Fulfillment Order bulunamadı." });
+            }
+
+            const fulfillmentOrderLineItems = shipment.items.map((item) => {
+                const foLineItem = fulfillmentOrder.lineItems.edges.find((edge: any) =>
+                    edge.node.lineItem.id === item.lineItemId || edge.node.lineItem.id === `gid://shopify/LineItem/${item.lineItemId}`
+                );
+                return foLineItem ? { id: foLineItem.node.id, quantity: item.quantity } : null;
+            }).filter(Boolean);
+
+            if (fulfillmentOrderLineItems.length === 0) {
+                return json({ status: "error", message: "Eşleşen ürün bulunamadı veya zaten gönderilmiş." });
+            }
+
+            const fulfillResponse = await admin.graphql(
+                `#graphql
+                mutation fulfillmentCreate($fulfillment: FulfillmentV2Input!) {
+                    fulfillmentCreateV2(fulfillment: $fulfillment) {
+                        fulfillment { id status }
+                        userErrors { field message }
+                    }
+                }`,
+                {
+                    variables: {
+                        fulfillment: {
+                            lineItemsByFulfillmentOrder: [{
+                                fulfillmentOrderId: fulfillmentOrder.id,
+                                fulfillmentOrderLineItems
+                            }],
+                            // We don't have tracking number yet, or we use placeholder
+                            notifyCustomer: true
+                        }
+                    }
+                }
+            );
+
+            const fulfillResult = await fulfillResponse.json();
+            if (fulfillResult.data?.fulfillmentCreateV2?.userErrors?.length > 0) {
+                return json({ status: "error", message: fulfillResult.data.fulfillmentCreateV2.userErrors[0].message });
+            }
+
+            return json({ status: "success", message: "Shopify tarafında gönderi oluşturuldu (Takip nosuz)." });
 
         } catch (error) {
             return json({ status: "error", message: (error as Error).message });
@@ -995,6 +1200,21 @@ export default function OrderDetail() {
                                                     </BlockStack>
 
                                                     <InlineStack gap="200">
+                                                        {shipment.status === "SENT_TO_ARAS" && (
+                                                            <Button
+                                                                onClick={() => {
+                                                                    const formData = new FormData();
+                                                                    formData.append("intent", "syncShipmentWithShopify");
+                                                                    formData.append("shipmentId", shipment.id);
+                                                                    fetcher.submit(formData, { method: "POST" });
+                                                                }}
+                                                                loading={fetcher.state === 'submitting'}
+                                                                variant="primary"
+                                                                tone="caution"
+                                                            >
+                                                                Shopify'a Gönder
+                                                            </Button>
+                                                        )}
                                                         <Button
                                                             onClick={() => {
                                                                 const formData = new FormData();
