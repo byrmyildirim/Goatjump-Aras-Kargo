@@ -1048,6 +1048,35 @@ export default function Shipments() {
     const [manualStatus, setManualStatus] = useState("IN_TRANSIT");
 
     const [selectedTab, setSelectedTab] = useState(0);
+    const [selectedOrderTab, setSelectedOrderTab] = useState(0);
+
+    const orderTabs = [
+        {
+            id: 'to-package',
+            content: 'Paketlenecekler',
+            panelID: 'to-package-content',
+        },
+        {
+            id: 'prepared',
+            content: 'Hazırlananlar',
+            panelID: 'prepared-content',
+        },
+    ];
+
+    // Filter orders based on local shipment existence
+    const ordersToPackage = orders.filter((order: any) => {
+        const orderId = order.id.split('/').pop();
+        // If there's no local shipment record at all for this order, it's definitely "to package"
+        return !localShipments.some((s: any) => s.orderId === orderId || s.orderId === order.id);
+    });
+
+    const ordersPrepared = orders.filter((order: any) => {
+        const orderId = order.id.split('/').pop();
+        // If it has a local shipment that is still waiting for tracking (SENT_TO_ARAS)
+        return localShipments.some((s: any) => (s.orderId === orderId || s.orderId === order.id) && s.status === 'SENT_TO_ARAS');
+    });
+
+    const currentOrders = selectedOrderTab === 0 ? ordersToPackage : ordersPrepared;
 
     const tabs = [
         {
@@ -1178,12 +1207,17 @@ export default function Shipments() {
                 <Layout>
                     <Layout.Section>
                         <div className="gj-card">
-                            <div className="gj-card-header">
-                                <h3>Bekleyen Siparişler</h3>
+                            <div className="gj-card-header" style={{ paddingBottom: 0 }}>
+                                <BlockStack gap="200">
+                                    <h3>Sipariş Listesi</h3>
+                                    <Tabs tabs={orderTabs} selected={selectedOrderTab} onSelect={setSelectedOrderTab} fitted />
+                                </BlockStack>
                             </div>
                             <div className="gj-card-body">
-                                {orders.length === 0 ? (
-                                    <Text as="p" tone="subdued">Gönderilecek sipariş bulunamadı.</Text>
+                                {currentOrders.length === 0 ? (
+                                    <Box padding="400">
+                                        <Text as="p" tone="subdued">Bu kategoride sipariş bulunamadı.</Text>
+                                    </Box>
                                 ) : (
                                     <div style={{ overflowX: 'auto' }}>
                                         <table className="gj-table">
@@ -1197,7 +1231,7 @@ export default function Shipments() {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {orders.map((item: any, index: number) => {
+                                                {currentOrders.map((item: any, index: number) => {
                                                     const { id, name, createdAt, shippingAddress } = item;
                                                     return (
                                                         <tr key={id} onClick={() => handleOrderClick(item)} style={{ cursor: 'pointer' }}>
