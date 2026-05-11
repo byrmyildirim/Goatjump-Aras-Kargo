@@ -761,18 +761,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             }
 
             // Extract numeric ID
-            const fulfillmentId = fulfillment.id.split('/').pop();
+            // Extract numeric ID from GID if necessary
+            const cleanOrderId = orderId.includes('/') ? orderId.split('/').pop() : orderId;
+            const cleanFulfillmentId = fulfillment.id.includes('/') ? fulfillment.id.split('/').pop() : fulfillment.id;
 
             // 2. Create Fulfillment Event via REST resource
-            // Using admin.rest.resources.FulfillmentEvent
             const FulfillmentEvent = admin.rest.resources.FulfillmentEvent;
             const event = new FulfillmentEvent({ session: session });
-            event.order_id = Number(orderId);
-            event.fulfillment_id = Number(fulfillmentId);
+            event.order_id = Number(cleanOrderId);
+            event.fulfillment_id = Number(cleanFulfillmentId);
             event.status = "delivered";
 
-            await event.save({});
-            console.log(`[Shopify Sync] Order ${orderId} fulfillment updated to DELIVERED.`);
+            await event.save({
+                update: true,
+            });
+            console.log(`[Shopify Sync] Order ${cleanOrderId} fulfillment ${cleanFulfillmentId} updated to DELIVERED.`);
 
         } catch (e) {
             console.error("[Shopify Sync] Error updating fulfillment status:", e);
