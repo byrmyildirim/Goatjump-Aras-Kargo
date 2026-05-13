@@ -20,6 +20,7 @@ import {
     Tabs,
     Tooltip,
     Icon,
+    Box,
 } from "@shopify/polaris";
 import { 
     SearchIcon, 
