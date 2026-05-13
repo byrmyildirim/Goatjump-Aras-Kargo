@@ -855,27 +855,51 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const settings = await prisma.arasKargoSettings.findFirst();
         if (!settings) return json({ status: "error", message: "Ayarlar bulunamadı." });
 
-        // Find all shipments that are 'SENT_TO_ARAS' or generally don't have a tracking number yet
+        // 1. Fetch shipments missing tracking numbers (Batch of 100)
         const pendingShipments = await prisma.shipment.findMany({
             where: {
-                // status: "SENT_TO_ARAS", // Optionally filter by status
-                trackingNumber: null // Safer check: filter by missing tracking number
+                trackingNumber: null
             },
-            take: 20 // Batch size limit
+            orderBy: { createdAt: 'desc' },
+            take: 100
         });
 
         if (pendingShipments.length === 0) {
-            return json({ status: "success", message: "Güncellenecek gönderi yok." });
+            // Check if there are any 'SENT_TO_ARAS' that might need Shopify sync anyway
+            const unsyncedShipments = await prisma.shipment.findMany({
+                where: { status: "SENT_TO_ARAS" },
+                take: 50
+            });
+            
+            if (unsyncedShipments.length === 0) {
+                return json({ status: "success", message: "Güncellenecek gönderi yok." });
+            }
         }
 
         let updatedCount = 0;
+        let shopifySyncedCount = 0;
+
         for (const shipment of pendingShipments) {
-            // Sequential to avoid rate limits
             const result = await checkAndUpdateShipment(shipment, settings, admin);
-            if (result.success) updatedCount++;
+            if (result.success) {
+                updatedCount++;
+            } else {
+                // If tracking number still not found, check if it's 'Unfulfilled' in Shopify and fix it
+                // This addresses the "appears as new order" issue
+                try {
+                    const shipmentItems = await prisma.shipmentItem.findMany({ where: { shipmentId: shipment.id } });
+                    const fulfillmentCheck = await createShopifyFulfillment(shipment, shipmentItems, null, admin);
+                    if (fulfillmentCheck.success) shopifySyncedCount++;
+                } catch (e) {
+                    console.error("Shopify sync error in bulk update:", e);
+                }
+            }
         }
 
-        return json({ status: "success", message: `${updatedCount} adet gönderi güncellendi.` });
+        let msg = `${updatedCount} adet takip nosu güncellendi.`;
+        if (shopifySyncedCount > 0) msg += ` ${shopifySyncedCount} adet Shopify fulfillment senkronize edildi.`;
+        
+        return json({ status: "success", message: msg });
     }
 
     if (intent === "deleteShipment") {
@@ -955,12 +979,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return json({ status: "error", message: "Ayarlar bulunamadı." });
         }
 
-        // Find shipments that have a tracking number. Temporarily checking all to auto-fix statuses.
         const shipmentsToCheck = await prisma.shipment.findMany({
             where: {
-                trackingNumber: { not: null }
+                trackingNumber: { not: null },
+                status: { not: 'DELIVERED' } // Only check if not already delivered
             },
-            take: 50
+            take: 100
         });
 
         // Background script to fix any 'no tracking' items that got corrupted to IN_TRANSIT/DELIVERED
