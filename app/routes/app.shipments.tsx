@@ -228,6 +228,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             errors.push("Geçmiş gönderiler yüklenemedi (Veritabanı Hatası)");
         }
 
+        // 2.5 Filter out orders that already have a local shipment record
+        // This ensures orders already "staged" don't appear in the "New Orders" tab
+        const shippedOrderIds = new Set(localShipments.map((s: any) => 
+            s.orderId.startsWith("gid://") ? s.orderId : `gid://shopify/Order/${s.orderId}`
+        ));
+
+        const filteredOrders = orders.filter((order: any) => !shippedOrderIds.has(order.id));
+
         // 3. Get Settings and Suppliers
         try {
             settings = await prisma.arasKargoSettings.findFirst();
@@ -237,7 +245,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             errors.push("Ayarlar yüklenemedi.");
         }
 
-        return json({ orders, localShipments, settings, suppliers, errors });
+        return json({ orders: filteredOrders, localShipments, settings, suppliers, errors });
     } catch (error) {
         console.error("Critical Loader Error:", error);
         // Even if auth fails or catastrophic error, try not to crash
