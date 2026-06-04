@@ -205,40 +205,55 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                 take: 1000
             });
 
-            // Enrich both datasets with customer names from Shopify in a single query.
+            // Enrich both datasets with customer names from Shopify.
+            // Done in its own try/catch so an enrichment failure (e.g. Shopify API
+            // hiccup) degrades gracefully to "Bilinmiyor" names instead of hiding
+            // the whole shipment list behind a database error.
             const toGid = (orderId: string) => orderId.startsWith("gid://") ? orderId : `gid://shopify/Order/${orderId}`;
-            const allShipments = [...localShipments, ...deliveredShipments];
-            if (allShipments.length > 0) {
-                const uniqueIds = Array.from(new Set(allShipments.map((s: any) => toGid(s.orderId))));
+            try {
+                const allShipments = [...localShipments, ...deliveredShipments];
+                if (allShipments.length > 0) {
+                    const uniqueIds = Array.from(new Set(allShipments.map((s: any) => toGid(s.orderId))));
 
-                const nodesResponse = await admin.graphql(
-                    `#graphql
-                    query getOrders($ids: [ID!]!) {
-                      nodes(ids: $ids) {
-                        ... on Order {
-                          id
-                          customer {
-                            firstName
-                            lastName
-                          }
-                        }
-                      }
-                    }`,
-                    { variables: { ids: uniqueIds } }
-                );
+                    // Shopify's nodes(ids:) query accepts at most 250 ids, so query in chunks.
+                    const orderMap: Record<string, any> = {};
+                    const CHUNK = 250;
+                    for (let i = 0; i < uniqueIds.length; i += CHUNK) {
+                        const idsChunk = uniqueIds.slice(i, i + CHUNK);
+                        const nodesResponse = await admin.graphql(
+                            `#graphql
+                            query getOrders($ids: [ID!]!) {
+                              nodes(ids: $ids) {
+                                ... on Order {
+                                  id
+                                  customer {
+                                    firstName
+                                    lastName
+                                  }
+                                }
+                              }
+                            }`,
+                            { variables: { ids: idsChunk } }
+                        );
 
-                const nodesJson = await nodesResponse.json();
-                const orderMap = (nodesJson.data?.nodes || []).reduce((acc: any, node: any) => {
-                    if (node && node.id) acc[node.id] = node.customer;
-                    return acc;
-                }, {});
+                        const nodesJson = await nodesResponse.json();
+                        (nodesJson.data?.nodes || []).forEach((node: any) => {
+                            if (node && node.id) orderMap[node.id] = node.customer;
+                        });
+                    }
 
-                const enrich = (s: any) => {
-                    const customer = orderMap[toGid(s.orderId)];
-                    return { ...s, customerName: customer ? `${customer.firstName} ${customer.lastName}` : "Bilinmiyor" };
-                };
-                localShipments = localShipments.map(enrich);
-                deliveredShipments = deliveredShipments.map(enrich);
+                    const enrich = (s: any) => {
+                        const customer = orderMap[toGid(s.orderId)];
+                        return { ...s, customerName: customer ? `${customer.firstName} ${customer.lastName}` : "Bilinmiyor" };
+                    };
+                    localShipments = localShipments.map(enrich);
+                    deliveredShipments = deliveredShipments.map(enrich);
+                }
+            } catch (enrichError) {
+                console.error("Error enriching shipments with customer names:", enrichError);
+                // Leave the shipments as-is (without customer names) rather than failing.
+                localShipments = localShipments.map((s: any) => ({ ...s, customerName: s.customerName || "Bilinmiyor" }));
+                deliveredShipments = deliveredShipments.map((s: any) => ({ ...s, customerName: s.customerName || "Bilinmiyor" }));
             }
         } catch (e) {
             console.error("Error fetching shipments:", e);
