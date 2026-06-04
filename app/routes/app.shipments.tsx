@@ -716,11 +716,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         return { success: true, trackingNumber: trackingNumber };
     };
 
-    const updateShopifyOrderToDelivered = async (orderId: string, admin: any, session: any, shipmentTrackingNumber?: string) => {
+    const updateShopifyOrderToDelivered = async (orderId: string, admin: any, session: any, shipmentTrackingNumber?: string): Promise<{ success: boolean; message: string }> => {
         try {
-            console.log(`[Shopify Sync] Updating order ${orderId} status to DELIVERED...`);
+            // Normalize the order id: shipment.orderId may be stored either as a raw
+            // numeric id ("123") or as a full GID ("gid://shopify/Order/123").
+            // Building "gid://shopify/Order/${orderId}" on top of an existing GID
+            // produces a malformed id and the order query returns null, which is why
+            // the delivery sync silently did nothing for UI-created shipments.
+            const numericOrderId = String(orderId).includes('/') ? String(orderId).split('/').pop() : String(orderId);
+            const orderGid = `gid://shopify/Order/${numericOrderId}`;
 
-            // 1. Get Fulfillment ID via GraphQL
+            console.log(`[Shopify Sync] Updating order ${numericOrderId} status to DELIVERED...`);
+
+            // 1. Get Fulfillment(s) via GraphQL
             const fulfillmentQuery = await admin.graphql(`
                 #graphql
                 query getFulfillments($id: ID!) {
@@ -728,6 +736,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                         fulfillments {
                             id
                             status
+                            displayStatus
                             trackingInfo {
                                 number
                             }
@@ -735,19 +744,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                     }
                 }
             `, {
-                variables: { id: `gid://shopify/Order/${orderId}` }
+                variables: { id: orderGid }
             });
 
             const fulfillmentData = await fulfillmentQuery.json();
             const fulfillments = fulfillmentData.data?.order?.fulfillments || [];
 
             if (fulfillments.length === 0) {
-                console.log(`[Shopify Sync] No fulfillments found for order ${orderId}`);
-                return;
+                console.log(`[Shopify Sync] No fulfillments found for order ${numericOrderId}`);
+                return { success: false, message: "Shopify'da fulfillment (gönderim) bulunamadı. Sipariş henüz Shopify'da kargolandı olarak işaretlenmemiş olabilir." };
             }
 
-            // Find valid fulfillment (not cancelled)
-            // Default to first active fulfillment
+            // Find valid fulfillment (not cancelled). Default to first active fulfillment.
             let fulfillment = fulfillments.find((f: any) => f.status !== 'CANCELLED');
 
             // If we have a tracking number, try to find the specific matching fulfillment
@@ -765,29 +773,56 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             }
 
             if (!fulfillment) {
-                console.log(`[Shopify Sync] No active fulfillment found for order ${orderId}`);
-                return;
+                console.log(`[Shopify Sync] No active fulfillment found for order ${numericOrderId}`);
+                return { success: false, message: "Aktif fulfillment bulunamadı (hepsi iptal edilmiş olabilir)." };
             }
 
-            // Extract numeric ID
-            // Extract numeric ID from GID if necessary
-            const cleanOrderId = orderId.includes('/') ? orderId.split('/').pop() : orderId;
-            const cleanFulfillmentId = fulfillment.id.includes('/') ? fulfillment.id.split('/').pop() : fulfillment.id;
+            // Already delivered? Nothing to do.
+            if (fulfillment.displayStatus === 'DELIVERED') {
+                console.log(`[Shopify Sync] Fulfillment ${fulfillment.id} already DELIVERED.`);
+                return { success: true, message: "Shopify zaten 'Teslim Edildi' durumunda." };
+            }
 
-            // 2. Create Fulfillment Event via REST resource
-            const FulfillmentEvent = admin.rest.resources.FulfillmentEvent;
-            const event = new FulfillmentEvent({ session: session });
-            event.order_id = Number(cleanOrderId);
-            event.fulfillment_id = Number(cleanFulfillmentId);
-            event.status = "delivered";
-
-            await event.save({
-                update: true,
+            // 2. Create the delivery fulfillment event via GraphQL (returns userErrors).
+            const mutationResponse = await admin.graphql(`
+                #graphql
+                mutation fulfillmentEventCreate($fulfillmentEvent: FulfillmentEventInput!) {
+                    fulfillmentEventCreate(fulfillmentEvent: $fulfillmentEvent) {
+                        fulfillmentEvent { id status }
+                        userErrors { field message }
+                    }
+                }
+            `, {
+                variables: {
+                    fulfillmentEvent: {
+                        fulfillmentId: fulfillment.id,
+                        status: "DELIVERED"
+                    }
+                }
             });
-            console.log(`[Shopify Sync] Order ${cleanOrderId} fulfillment ${cleanFulfillmentId} updated to DELIVERED.`);
+
+            const mData = await mutationResponse.json();
+
+            // Surface GraphQL-level errors (e.g. permission/scope problems)
+            if (mData.errors && mData.errors.length > 0) {
+                const msg = mData.errors.map((e: any) => e.message).join(", ");
+                console.error("[Shopify Sync] GraphQL errors:", msg);
+                return { success: false, message: `Shopify GraphQL hatası: ${msg}` };
+            }
+
+            const userErrors = mData.data?.fulfillmentEventCreate?.userErrors || [];
+            if (userErrors.length > 0) {
+                const msg = userErrors.map((e: any) => e.message).join(", ");
+                console.error("[Shopify Sync] fulfillmentEventCreate userErrors:", msg);
+                return { success: false, message: `Shopify hatası: ${msg}` };
+            }
+
+            console.log(`[Shopify Sync] Order ${numericOrderId} fulfillment ${fulfillment.id} marked DELIVERED.`);
+            return { success: true, message: "Shopify 'Teslim Edildi' olarak işaretlendi." };
 
         } catch (e) {
             console.error("[Shopify Sync] Error updating fulfillment status:", e);
+            return { success: false, message: "Shopify güncellenirken hata: " + (e instanceof Error ? e.message : String(e)) };
         }
     };
 
@@ -968,15 +1003,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             });
 
             // If delivered, update Shopify fulfillment status
+            let shopifyMessage = "";
             if (result.status === 'DELIVERED' && shipment.orderId) {
-                await updateShopifyOrderToDelivered(shipment.orderId, admin, session, trackingNumberToUse || undefined);
+                const shopifyResult = await updateShopifyOrderToDelivered(shipment.orderId, admin, session, trackingNumberToUse || undefined);
+                shopifyMessage = shopifyResult.success
+                    ? ` ${shopifyResult.message}`
+                    : ` ⚠️ Shopify güncellenemedi: ${shopifyResult.message}`;
             }
 
             const statusLabel = result.status === 'DELIVERED' ? 'Teslim Edildi' :
                 result.status === 'IN_TRANSIT' ? 'Kargoda' : 'Bilinmiyor';
             return json({
                 status: "success",
-                message: `Durum: ${statusLabel}`,
+                message: `Durum: ${statusLabel}.${shopifyMessage}`,
                 deliveryStatus: result.status
             });
         } else {
@@ -1014,6 +1053,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
         let deliveredCount = 0;
         let inTransitCount = 0;
+        let shopifyFailCount = 0;
 
         for (const shipment of shipmentsToCheck) {
             if (!shipment.mok && !shipment.trackingNumber) continue;
@@ -1050,7 +1090,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
                     // If delivered, update Shopify fulfillment status
                     if (newStatus === 'DELIVERED' && shipment.orderId) {
-                        await updateShopifyOrderToDelivered(shipment.orderId, admin, session, trackingNumberToUse || undefined);
+                        const shopifyResult = await updateShopifyOrderToDelivered(shipment.orderId, admin, session, trackingNumberToUse || undefined);
+                        if (!shopifyResult.success) shopifyFailCount++;
                     }
 
                     if (result.status === 'DELIVERED') deliveredCount++;
@@ -1061,7 +1102,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
         return json({
             status: "success",
-            message: `${deliveredCount} teslim edildi, ${inTransitCount} kargoda olarak güncellendi.`
+            message: `${deliveredCount} teslim edildi, ${inTransitCount} kargoda olarak güncellendi.` +
+                (shopifyFailCount > 0 ? ` ⚠️ ${shopifyFailCount} gönderide Shopify 'Teslim Edildi' güncellemesi başarısız (loglara bakın).` : ``)
         });
     }
 
