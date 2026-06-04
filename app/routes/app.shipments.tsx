@@ -33,7 +33,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { sendPackageToAras, getShipmentStatus, getBarcode, getDeliveryStatus } from "../services/arasKargo.server";
+import { sendPackageToAras, getShipmentStatus, getBarcode, getDeliveryStatusSmart } from "../services/arasKargo.server";
 import { useState, useEffect } from "react";
 
 // Cargo companies list with tracking URL patterns
@@ -943,8 +943,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             return json({ status: "error", message: "Ayarlar bulunamadı." });
         }
 
-        // QueryType 1 = MOK
-        const result = await getDeliveryStatus(shipment.mok, settings, 1);
+        // Prefer querying by tracking number (QueryType 2) which returns the live
+        // delivery status; fall back to MÖK (QueryType 1) when there is no tracking number.
+        const result = await getDeliveryStatusSmart(
+            { mok: shipment.mok, trackingNumber: shipment.trackingNumber },
+            settings
+        );
 
         if (result.success) {
             // Update shipment status in DB and tracking number if found
@@ -1012,9 +1016,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         let inTransitCount = 0;
 
         for (const shipment of shipmentsToCheck) {
-            if (!shipment.mok) continue;
+            if (!shipment.mok && !shipment.trackingNumber) continue;
 
-            const result = await getDeliveryStatus(shipment.mok, settings, 1);
+            const result = await getDeliveryStatusSmart(
+                { mok: shipment.mok, trackingNumber: shipment.trackingNumber },
+                settings
+            );
 
             if (result.success) {
                 const newStatus = result.status === 'DELIVERED' ? 'DELIVERED' :
