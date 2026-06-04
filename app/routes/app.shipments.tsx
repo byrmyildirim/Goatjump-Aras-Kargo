@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, useFetcher, useSubmit, useNavigate, Link as RemixLink } from "@remix-run/react";
+import { useLoaderData, useFetcher, useSubmit, useNavigate, useNavigation, Link as RemixLink } from "@remix-run/react";
 import {
     Page,
     Layout,
@@ -104,10 +104,16 @@ const getOrderStatusBadge = (fulfillmentStatus: string, financialStatus: string)
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
     let orders = [];
-    let localShipments = [];
+    let localShipments: any[] = [];
+    let deliveredShipments: any[] = [];
     let settings = null;
     let suppliers = [];
     let errors: string[] = [];
+
+    // Date range for the "Teslim Edilenler" tab (empty = default 1-month window).
+    const reqUrl = new URL(request.url);
+    const fromParam = reqUrl.searchParams.get("from") || "";
+    const toParam = reqUrl.searchParams.get("to") || "";
 
     try {
         const { admin } = await authenticate.admin(request);
@@ -175,22 +181,35 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             const oneMonthAgo = new Date();
             oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
+            // Default 1-month window. Used for the order cross-referencing and the
+            // "Takip No Bekleyenler" / "Kargolananlar" tabs.
             localShipments = await prisma.shipment.findMany({
-                where: {
-                    createdAt: {
-                        gte: oneMonthAgo,
-                    },
-                },
+                where: { createdAt: { gte: oneMonthAgo } },
                 orderBy: { createdAt: 'desc' },
                 take: 1000 // Güvenlik amaçlı 1000 limiti, genelde 1 ayı kaplar
             });
 
-            // Enrich with customer names from Shopify
-            if (localShipments.length > 0) {
-                const orderIds = localShipments.map((s: any) =>
-                    s.orderId.startsWith("gid://") ? s.orderId : `gid://shopify/Order/${s.orderId}`
-                );
-                const uniqueIds = Array.from(new Set(orderIds));
+            // "Teslim Edilenler" tab dataset. When a date range is given we filter on
+            // updatedAt (which reflects the delivery time, since the status flips to
+            // DELIVERED on that update) and drop the default 1-month window so older
+            // deliveries can be listed too. Kept separate from localShipments so the
+            // range filter does not affect the other tabs / order matching.
+            const deliveredUpdatedAt: any = {};
+            if (fromParam) deliveredUpdatedAt.gte = new Date(`${fromParam}T00:00:00`);
+            if (toParam) deliveredUpdatedAt.lte = new Date(`${toParam}T23:59:59.999`);
+            if (!fromParam && !toParam) deliveredUpdatedAt.gte = oneMonthAgo;
+
+            deliveredShipments = await prisma.shipment.findMany({
+                where: { status: 'DELIVERED', updatedAt: deliveredUpdatedAt },
+                orderBy: { updatedAt: 'desc' },
+                take: 1000
+            });
+
+            // Enrich both datasets with customer names from Shopify in a single query.
+            const toGid = (orderId: string) => orderId.startsWith("gid://") ? orderId : `gid://shopify/Order/${orderId}`;
+            const allShipments = [...localShipments, ...deliveredShipments];
+            if (allShipments.length > 0) {
+                const uniqueIds = Array.from(new Set(allShipments.map((s: any) => toGid(s.orderId))));
 
                 const nodesResponse = await admin.graphql(
                     `#graphql
@@ -214,14 +233,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                     return acc;
                 }, {});
 
-                localShipments = localShipments.map((s: any) => {
-                    const gid = s.orderId.startsWith("gid://") ? s.orderId : `gid://shopify/Order/${s.orderId}`;
-                    const customer = orderMap[gid];
-                    return {
-                        ...s,
-                        customerName: customer ? `${customer.firstName} ${customer.lastName}` : "Bilinmiyor"
-                    };
-                });
+                const enrich = (s: any) => {
+                    const customer = orderMap[toGid(s.orderId)];
+                    return { ...s, customerName: customer ? `${customer.firstName} ${customer.lastName}` : "Bilinmiyor" };
+                };
+                localShipments = localShipments.map(enrich);
+                deliveredShipments = deliveredShipments.map(enrich);
             }
         } catch (e) {
             console.error("Error fetching shipments:", e);
@@ -245,11 +262,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             errors.push("Ayarlar yüklenemedi.");
         }
 
-        return json({ orders: filteredOrders, localShipments, settings, suppliers, errors });
+        return json({ orders: filteredOrders, localShipments, deliveredShipments, settings, suppliers, errors, dateFrom: fromParam, dateTo: toParam });
     } catch (error) {
         console.error("Critical Loader Error:", error);
         // Even if auth fails or catastrophic error, try not to crash
-        return json({ orders: [], localShipments: [], settings: null, suppliers: [], errors: ["Kritik Sistem Hatası: " + (error as Error).message] });
+        return json({ orders: [], localShipments: [], deliveredShipments: [], settings: null, suppliers: [], errors: ["Kritik Sistem Hatası: " + (error as Error).message], dateFrom: fromParam, dateTo: toParam });
     }
 };
 
@@ -1111,9 +1128,33 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Shipments() {
-    const { orders, localShipments, suppliers, errors } = useLoaderData<typeof loader>();
+    const { orders, localShipments, deliveredShipments, suppliers, errors, dateFrom, dateTo } = useLoaderData<typeof loader>();
     const fetcher = useFetcher();
     const navigate = useNavigate();
+    const navigation = useNavigation();
+
+    // Date-range filter for the "Teslim Edilenler" tab (synced with the URL via the loader)
+    const [filterFrom, setFilterFrom] = useState<string>(dateFrom || "");
+    const [filterTo, setFilterTo] = useState<string>(dateTo || "");
+
+    useEffect(() => {
+        setFilterFrom(dateFrom || "");
+        setFilterTo(dateTo || "");
+    }, [dateFrom, dateTo]);
+
+    const applyDateFilter = () => {
+        const params = new URLSearchParams();
+        if (filterFrom) params.set("from", filterFrom);
+        if (filterTo) params.set("to", filterTo);
+        const qs = params.toString();
+        navigate({ search: qs ? `?${qs}` : "" }, { replace: true });
+    };
+
+    const clearDateFilter = () => {
+        setFilterFrom("");
+        setFilterTo("");
+        navigate({ search: "" }, { replace: true });
+    };
 
     const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
     const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
@@ -1178,15 +1219,16 @@ export default function Shipments() {
         },
     ];
 
-    const filteredShipments = localShipments.filter((shipment: any) => {
-        if (selectedTab === 0) {
-            return !shipment.trackingNumber;
-        } else if (selectedTab === 1) {
+    const filteredShipments = selectedTab === 2
+        // "Teslim Edilenler" uses the date-range-aware dataset from the loader.
+        ? deliveredShipments.filter((shipment: any) => !!shipment.trackingNumber && shipment.status === 'DELIVERED')
+        : localShipments.filter((shipment: any) => {
+            if (selectedTab === 0) {
+                return !shipment.trackingNumber;
+            }
+            // selectedTab === 1
             return !!shipment.trackingNumber && shipment.status !== 'DELIVERED';
-        } else {
-            return !!shipment.trackingNumber && shipment.status === 'DELIVERED';
-        }
-    });
+        });
 
     const handleOrderClick = (order: any) => {
         // Extract numeric ID from gid://shopify/Order/12345 format
@@ -1365,6 +1407,43 @@ export default function Shipments() {
                             </div>
                             <div className="gj-card-body" style={{ padding: '0' }}>
                                 <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab} fitted />
+                                {selectedTab === 2 && (
+                                    <div style={{ padding: '16px 20px 0' }}>
+                                        <InlineStack gap="300" blockAlign="end" wrap>
+                                            <div style={{ minWidth: '160px' }}>
+                                                <TextField
+                                                    label="Başlangıç (Teslim Tarihi)"
+                                                    type="date"
+                                                    value={filterFrom}
+                                                    onChange={setFilterFrom}
+                                                    autoComplete="off"
+                                                    max={filterTo || undefined}
+                                                />
+                                            </div>
+                                            <div style={{ minWidth: '160px' }}>
+                                                <TextField
+                                                    label="Bitiş (Teslim Tarihi)"
+                                                    type="date"
+                                                    value={filterTo}
+                                                    onChange={setFilterTo}
+                                                    autoComplete="off"
+                                                    min={filterFrom || undefined}
+                                                />
+                                            </div>
+                                            <Button onClick={applyDateFilter} variant="primary" loading={navigation.state === 'loading'}>
+                                                Filtrele
+                                            </Button>
+                                            {(dateFrom || dateTo) && (
+                                                <Button onClick={clearDateFilter} variant="tertiary">
+                                                    Temizle
+                                                </Button>
+                                            )}
+                                            <Text as="span" tone="subdued" variant="bodySm">
+                                                {filteredShipments.length} teslim edilen gönderi
+                                            </Text>
+                                        </InlineStack>
+                                    </div>
+                                )}
                                 <div style={{ padding: '20px' }}>
                                     <BlockStack gap="300">
                                         {filteredShipments.map((shipment: any) => (
@@ -1388,6 +1467,11 @@ export default function Shipments() {
                                                     >
                                                         Takip: {shipment.trackingNumber}
                                                     </a>
+                                                )}
+                                                {shipment.status === 'DELIVERED' && shipment.updatedAt && (
+                                                    <Text as="p" tone="subdued" variant="bodySm">
+                                                        Teslim Tarihi: {new Date(shipment.updatedAt).toLocaleDateString('tr-TR')}
+                                                    </Text>
                                                 )}
                                             </div>
                                             <div className="gj-action-btn-container" style={{ marginTop: '12px' }}>
