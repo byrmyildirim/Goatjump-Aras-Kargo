@@ -543,9 +543,15 @@ export const getDeliveryStatus = async (
         const extractedTrackingNumber = trackingNumberMatch ? trackingNumberMatch[1] : undefined;
 
         // Also check for delivery date as confirmation
-        const deliveryDateRegex = /(?:<|&lt;)(?:TESLIM_TARIHI|TESLIM_ZAMANI|DeliveryDate)(?:>|&gt;)([^<&]+)(?:<|&lt;)/i;
+        const deliveryDateRegex = /(?:<|&lt;)(?:TESLIM_TARIHI|TESLIM_ZAMANI|TESLIMAT_TARIHI|DeliveryDate)(?:>|&gt;)([^<&]+)(?:<|&lt;)/i;
         const deliveryDateMatch = responseText.match(deliveryDateRegex);
         const hasDeliveryDate = !!deliveryDateMatch && deliveryDateMatch[1].trim().length > 0;
+
+        // Recipient fields (TESLIM_ALAN / TESLIM_EDEN) are only populated once the cargo
+        // has actually been handed over, so their presence is a strong "delivered" signal.
+        const recipientRegex = /(?:<|&lt;)(?:TESLIM_ALAN|TESLIM_EDEN|TESLIMAT_ALAN|TESLIM_ALAN_KISI)(?:>|&gt;)([^<&]+)(?:<|&lt;)/i;
+        const recipientMatch = responseText.match(recipientRegex);
+        const hasRecipient = !!recipientMatch && recipientMatch[1].trim().length > 0;
 
         // Check Delivery Status
         // 5 = Parçalı Teslimat, 6 = Teslim Edildi
@@ -564,6 +570,16 @@ export const getDeliveryStatus = async (
                 success: true,
                 status: 'DELIVERED',
                 message: `Kargo teslim edildi (Teslim Tarihi: ${deliveryDateMatch?.[1]})`,
+                rawResponse: responseText.substring(0, 2000),
+                trackingNumber: extractedTrackingNumber
+            };
+        }
+
+        if (hasRecipient) {
+            return {
+                success: true,
+                status: 'DELIVERED',
+                message: `Kargo teslim edildi (Teslim Alan: ${recipientMatch?.[1]?.trim()})`,
                 rawResponse: responseText.substring(0, 2000),
                 trackingNumber: extractedTrackingNumber
             };
@@ -718,5 +734,50 @@ export const getDeliveryStatus = async (
             message: 'Servis hatası: ' + (error as Error).message
         };
     }
+};
+
+/**
+ * Smart delivery-status resolver.
+ *
+ * This account integrates with Aras Kargo on the *developer/integration* side:
+ * orders are pushed with SetOrder and always queried back by their integration
+ * code (MÖK / IntegrationCode), not as a customer by tracking number. So the
+ * MÖK query (QueryType 1) is the primary and correct path here.
+ *
+ * The tracking-number query (QueryType 2) is kept only as a last-resort fallback
+ * for the case where the MÖK query could not determine a status at all.
+ */
+export const getDeliveryStatusSmart = async (
+    params: { mok?: string | null; trackingNumber?: string | null },
+    settings: ArasKargoSettings
+): Promise<{ success: boolean; status: 'PENDING' | 'IN_TRANSIT' | 'DELIVERED' | 'UNKNOWN'; message: string; rawResponse?: string; trackingNumber?: string }> => {
+    const trackingNumber = params.trackingNumber?.toString().trim();
+    const mok = params.mok?.toString().trim();
+
+    let lastResult: Awaited<ReturnType<typeof getDeliveryStatus>> | null = null;
+
+    // 1) Preferred path: query by integration code / MÖK (QueryType 1).
+    if (mok) {
+        const byMok = await getDeliveryStatus(mok, settings, 1);
+        if (byMok.success && byMok.status !== 'UNKNOWN') {
+            return byMok;
+        }
+        lastResult = byMok;
+    }
+
+    // 2) Last-resort fallback: query by tracking number (QueryType 2).
+    if (trackingNumber) {
+        const byTracking = await getDeliveryStatus(trackingNumber, settings, 2);
+        if (byTracking.success && byTracking.status !== 'UNKNOWN') {
+            return byTracking;
+        }
+        lastResult = lastResult ?? byTracking;
+    }
+
+    return lastResult ?? {
+        success: false,
+        status: 'UNKNOWN',
+        message: 'Teslimat sorgusu için MÖK veya takip numarası bulunamadı.'
+    };
 };
 

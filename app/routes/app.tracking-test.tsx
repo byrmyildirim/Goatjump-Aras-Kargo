@@ -16,7 +16,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { getShipmentStatus, getTrackingNumberByQueryService, getDeliveryStatus } from "../services/arasKargo.server";
+import { getTrackingNumberByQueryService, getDeliveryStatus } from "../services/arasKargo.server";
 import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -46,8 +46,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             const result = await getDeliveryStatus(trackingNo, settings, 2); // 2 = Tracking Number
             return json({ success: true, result, type: 'deliveryStatus' });
         } else {
+            // MÖK (Integration Code / QueryType 1) ile teslimat durumu sorgusu.
+            // Ham XML yaniti, "teslim edildi" bilgisinin hangi alanda/kodla geldigini
+            // tespit etmek icin sonucta gosterilir.
             if (!mok) return json({ success: false, message: "Lütfen bir MÖK kodu girin." });
-            const result = await getShipmentStatus(mok, settings);
+            const result = await getDeliveryStatus(mok, settings, 1);
             return json({ success: true, result, type: 'status' });
         }
     } catch (error) {
@@ -92,7 +95,7 @@ export default function TrackingTest() {
                                     <BlockStack gap="200" inlineAlign="start">
                                         <div style={{ display: 'flex', gap: '10px' }}>
                                             <Button onClick={() => setActionType('status')} submit variant="primary" loading={isLoading} disabled={!mokValue}>
-                                                Durum Sorgula
+                                                Teslimat Durumu Sorgula (MÖK)
                                             </Button>
                                             <Button onClick={() => setActionType('barcode')} submit variant="secondary" loading={isLoading} disabled={!mokValue}>
                                                 Takip No & Barkod Getir
