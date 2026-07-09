@@ -802,7 +802,7 @@ export default function OrderDetail() {
     const [currentLabelData, setCurrentLabelData] = useState<{
         mok: string;
         supplier: { name: string };
-        items: { title: string; quantity: number }[];
+        items: { title: string; sku: string; quantity: number }[];
     } | null>(null);
 
     // Address editing state
@@ -845,7 +845,7 @@ export default function OrderDetail() {
                 const items = order.lineItems.edges
                     .map((e: any) => e.node)
                     .filter((node: any) => selectedItems[node.id] && selectedQuantities[node.id] > 0)
-                    .map((node: any) => ({ title: node.title, quantity: selectedQuantities[node.id] }));
+                    .map((node: any) => ({ title: node.title, sku: node.sku || "", quantity: selectedQuantities[node.id] }));
 
                 setCurrentLabelData({
                     mok: data.mok,
