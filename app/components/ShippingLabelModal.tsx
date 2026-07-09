@@ -87,19 +87,7 @@ export default function ShippingLabelModal({
                                     <td class="value-col">${receiverAddress} ${receiverCity}</td>
                                 </tr>
                                 <tr class="header-row">
-                                    <td colspan="2">Kargo Bilgileri</td>
-                                </tr>
-                                <tr>
-                                    <td class="label-col">Kargo Firması</td>
-                                    <td class="value-col">Aras Kargo</td>
-                                </tr>
-                                <tr>
-                                    <td class="label-col">Ödeme Türü</td>
-                                    <td class="value-col">Gönderici Ödemeli</td>
-                                </tr>
-                                <tr>
-                                    <td class="label-col">Kargo Tipi</td>
-                                    <td class="value-col">Gönderici Ödemeli Kargo</td>
+                                    <td colspan="2">Ürünler</td>
                                 </tr>
                                 ${items.map(item => `
                                 <tr>
@@ -212,19 +200,7 @@ export default function ShippingLabelModal({
                                 <td style={{ border: '1px solid #000', padding: '6px' }}>{receiverAddress} {receiverCity}</td>
                             </tr>
                             <tr style={{ backgroundColor: '#f2f2f2', textAlign: 'center', fontWeight: 'bold' }}>
-                                <td colSpan={2} style={{ border: '1px solid #000', padding: '8px' }}>Kargo Bilgileri</td>
-                            </tr>
-                            <tr>
-                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Kargo Firması</td>
-                                <td style={{ border: '1px solid #000', padding: '6px' }}>Aras Kargo</td>
-                            </tr>
-                            <tr>
-                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Ödeme Türü</td>
-                                <td style={{ border: '1px solid #000', padding: '6px' }}>Gönderici Ödemeli</td>
-                            </tr>
-                            <tr>
-                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Kargo Tipi</td>
-                                <td style={{ border: '1px solid #000', padding: '6px' }}>Gönderici Ödemeli Kargo</td>
+                                <td colSpan={2} style={{ border: '1px solid #000', padding: '8px' }}>Ürünler</td>
                             </tr>
                             {items.map((item, index) => (
                                 <tr key={index}>
