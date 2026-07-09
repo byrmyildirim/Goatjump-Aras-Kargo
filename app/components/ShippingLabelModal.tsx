@@ -12,7 +12,7 @@ interface ShippingLabelModalProps {
     receiverCity: string;
     receiverPhone?: string;
     pieceCount?: number;
-    items: { title: string; quantity: number }[];
+    items: { title: string; sku?: string; quantity: number }[];
 }
 
 export default function ShippingLabelModal({
@@ -101,14 +101,12 @@ export default function ShippingLabelModal({
                                     <td class="label-col">Kargo Tipi</td>
                                     <td class="value-col">Gönderici Ödemeli Kargo</td>
                                 </tr>
+                                ${items.map(item => `
                                 <tr>
-                                    <td class="label-col">Paket Sayısı</td>
-                                    <td class="value-col">${pieceCount}/${pieceCount}</td>
+                                    <td class="label-col"><strong>SKU: ${item.sku || '-'}</strong></td>
+                                    <td class="value-col"><strong>${item.quantity} Adet</strong></td>
                                 </tr>
-                                <tr>
-                                    <td class="label-col">Desi</td>
-                                    <td class="value-col">1</td>
-                                </tr>
+                                `).join('')}
                             </table>
                             <div class="barcode-section">
                                 <svg id="barcode"></svg>
@@ -228,14 +226,12 @@ export default function ShippingLabelModal({
                                 <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Kargo Tipi</td>
                                 <td style={{ border: '1px solid #000', padding: '6px' }}>Gönderici Ödemeli Kargo</td>
                             </tr>
-                            <tr>
-                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Paket Sayısı</td>
-                                <td style={{ border: '1px solid #000', padding: '6px' }}>{pieceCount}/{pieceCount}</td>
-                            </tr>
-                            <tr>
-                                <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>Desi</td>
-                                <td style={{ border: '1px solid #000', padding: '6px' }}>1</td>
-                            </tr>
+                            {items.map((item, index) => (
+                                <tr key={index}>
+                                    <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>SKU: {item.sku || '-'}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px', fontWeight: 'bold' }}>{item.quantity} Adet</td>
+                                </tr>
+                            ))}
                         </tbody>
                     </table>
                     <div style={{ textAlign: 'center', padding: '10px 0', border: '1px solid #000', borderTop: 'none' }}>
