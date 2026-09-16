@@ -172,8 +172,8 @@ export const sendPackageToAras = async (
           <ReceiverName>${receiverName}</ReceiverName>
           <ReceiverAddress>${fullAddress}</ReceiverAddress>
           <ReceiverPhone1>${receiverPhone}</ReceiverPhone1>
-          <ReceiverCityName>${escapeXml(input.shippingAddress.city || input.shippingAddress.province || 'Bilinmiyor')}</ReceiverCityName>
-          <ReceiverTownName>${escapeXml(input.shippingAddress.address2 || input.shippingAddress.city || 'Bilinmiyor')}</ReceiverTownName>
+          <ReceiverCityName>${escapedCityName}</ReceiverCityName>
+          <ReceiverTownName>${escapedTownName || 'MERKEZ'}</ReceiverTownName>
           <SenderAccountAddressId>${escapeXml(senderAddressId)}</SenderAccountAddressId>
           <PieceCount>${pieceCount}</PieceCount>
           <PieceDetails>

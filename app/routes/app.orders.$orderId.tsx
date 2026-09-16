@@ -72,6 +72,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
                     email
                     phone
                 }
+                customShippingAddress: metafield(namespace: "custom", key: "shipping_address") {
+                    value
+                }
                 shippingAddress {
                     firstName
                     lastName
@@ -135,6 +138,20 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         return redirect("/app/shipments");
     }
 
+    if (order.customShippingAddress?.value) {
+        try {
+            const parsedCustomAddr = JSON.parse(order.customShippingAddress.value);
+            if (parsedCustomAddr && typeof parsedCustomAddr === "object") {
+                order.shippingAddress = {
+                    ...order.shippingAddress,
+                    ...parsedCustomAddr
+                };
+            }
+        } catch (e) {
+            console.error("Failed to parse custom shipping address metafield:", e);
+        }
+    }
+
     // Fetch suppliers and settings from database
     const suppliers = await prisma.supplier.findMany();
     const settings = await prisma.arasKargoSettings.findFirst();
@@ -148,11 +165,101 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     return json({ order, suppliers, settings, localShipments });
 };
 
+async function persistShippingAddress(admin: any, orderId: string, shippingAddress: any) {
+    if (!shippingAddress) return;
+
+    // 1. Always save to Shopify Order Metafield (Works for all orders, including fulfilled ones)
+    try {
+        const mfResponse = await admin.graphql(
+            `#graphql
+            mutation setOrderAddressMetafield($metafields: [MetafieldsSetInput!]!) {
+                metafieldsSet(metafields: $metafields) {
+                    metafields {
+                        id
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }`,
+            {
+                variables: {
+                    metafields: [
+                        {
+                            ownerId: `gid://shopify/Order/${orderId}`,
+                            namespace: "custom",
+                            key: "shipping_address",
+                            type: "json",
+                            value: JSON.stringify(shippingAddress)
+                        }
+                    ]
+                }
+            }
+        );
+        const mfData = await mfResponse.json();
+        if (mfData.data?.metafieldsSet?.userErrors?.length > 0) {
+            console.error("Metafield Address Update Error:", mfData.data.metafieldsSet.userErrors);
+        }
+    } catch (err) {
+        console.error("Failed to update Shopify address metafield:", err);
+    }
+
+    // 2. Try native orderUpdate (for unfulfilled orders)
+    try {
+        const updateResponse = await admin.graphql(
+            `#graphql
+            mutation orderUpdate($input: OrderInput!) {
+                orderUpdate(input: $input) {
+                    order {
+                        id
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }`,
+            {
+                variables: {
+                    input: {
+                        id: `gid://shopify/Order/${orderId}`,
+                        shippingAddress: {
+                            firstName: shippingAddress.firstName,
+                            lastName: shippingAddress.lastName,
+                            address1: shippingAddress.address1,
+                            address2: shippingAddress.address2 || "",
+                            city: shippingAddress.city,
+                            province: shippingAddress.province,
+                            zip: shippingAddress.zip,
+                            phone: shippingAddress.phone,
+                            countryCode: "TR"
+                        }
+                    }
+                }
+            }
+        );
+        const updateResult = await updateResponse.json();
+        if (updateResult.data?.orderUpdate?.userErrors?.length > 0) {
+            console.warn("Native orderUpdate userErrors (normal if order fulfilled):", updateResult.data.orderUpdate.userErrors);
+        }
+    } catch (err) {
+        console.warn("Failed to update native Shopify address:", err);
+    }
+}
+
 export const action = async ({ request, params }: ActionFunctionArgs) => {
     const { admin } = await authenticate.admin(request);
     const formData = await request.formData();
     const intent = formData.get("intent");
     const orderId = params.orderId;
+
+    if (intent === "updateAddress") {
+        const shippingAddressJson = formData.get("shippingAddress") as string;
+        const shippingAddress = JSON.parse(shippingAddressJson);
+        await persistShippingAddress(admin, orderId!, shippingAddress);
+        return json({ status: "success", message: "Teslimat adresi başarıyla güncellendi." });
+    }
 
     if (intent === "stagePackage") {
         const supplierId = formData.get("supplierId") as string;
@@ -172,50 +279,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         }
 
         // 1. Update Shopify Address (Persistence)
-        try {
-            const updateResponse = await admin.graphql(
-                `#graphql
-                mutation orderUpdate($input: OrderInput!) {
-                    orderUpdate(input: $input) {
-                        order {
-                            id
-                            shippingAddress {
-                                province
-                                city
-                            }
-                        }
-                        userErrors {
-                            field
-                            message
-                        }
-                    }
-                }`,
-                {
-                    variables: {
-                        input: {
-                            id: `gid://shopify/Order/${orderId}`,
-                            shippingAddress: {
-                                firstName: shippingAddress.firstName,
-                                lastName: shippingAddress.lastName,
-                                address1: shippingAddress.address1,
-                                address2: shippingAddress.address2,
-                                city: shippingAddress.city,
-                                province: shippingAddress.province,
-                                zip: shippingAddress.zip,
-                                phone: shippingAddress.phone
-                            }
-                        }
-                    }
-                }
-            );
-            const updateResult = await updateResponse.json();
-            if (updateResult.data?.orderUpdate?.userErrors?.length > 0) {
-                console.error("Address Update Error:", updateResult.data.orderUpdate.userErrors);
-                // We continue even if update fails, but warn?
-            }
-        } catch (err) {
-            console.error("Failed to update Shopify address:", err);
-        }
+        await persistShippingAddress(admin, orderId!, shippingAddress);
 
         // Call Aras Kargo API
         const result = await sendPackageToAras({
@@ -807,7 +871,17 @@ export default function OrderDetail() {
 
     // Address editing state
     const [isEditingAddress, setIsEditingAddress] = useState(false);
-    const [editedAddress, setEditedAddress] = useState<any>(null);
+    const [editedAddress, setEditedAddress] = useState<any>(order.shippingAddress || null);
+    const isSavingAddress = fetcher.state !== "idle" && fetcher.formData?.get("intent") === "updateAddress";
+
+    const handleSaveAddress = () => {
+        if (!editedAddress) return;
+        const formData = new FormData();
+        formData.append("intent", "updateAddress");
+        formData.append("shippingAddress", JSON.stringify(editedAddress));
+        fetcher.submit(formData, { method: "POST" });
+        setIsEditingAddress(false);
+    };
 
     // Initialize selections
     useEffect(() => {
@@ -824,11 +898,11 @@ export default function OrderDetail() {
             setSelectedSupplierId(suppliers[0].id);
         }
 
-        // Initialize edited address
-        if (order.shippingAddress) {
+        // Initialize edited address only when not actively editing
+        if (order.shippingAddress && !isEditingAddress) {
             setEditedAddress(order.shippingAddress);
         }
-    }, [order, suppliers]);
+    }, [order, suppliers, isEditingAddress]);
 
     // Handle fetcher response
     useEffect(() => {
@@ -1346,50 +1420,72 @@ export default function OrderDetail() {
                                         <InlineStack gap="300">
                                             <TextField
                                                 label="Ad"
-                                                value={editedAddress.firstName}
+                                                value={editedAddress.firstName || ''}
                                                 onChange={(val) => setEditedAddress({ ...editedAddress, firstName: val })}
                                                 autoComplete="off"
                                             />
                                             <TextField
                                                 label="Soyad"
-                                                value={editedAddress.lastName}
+                                                value={editedAddress.lastName || ''}
                                                 onChange={(val) => setEditedAddress({ ...editedAddress, lastName: val })}
                                                 autoComplete="off"
                                             />
                                         </InlineStack>
                                         <TextField
                                             label="Telefon"
-                                            value={editedAddress.phone}
+                                            value={editedAddress.phone || ''}
                                             onChange={(val) => setEditedAddress({ ...editedAddress, phone: val })}
                                             autoComplete="off"
                                         />
                                         <TextField
-                                            label="Adres 1"
-                                            value={editedAddress.address1}
+                                            label="Adres Satırı 1 (Cadde / Mahalle / Sokak)"
+                                            value={editedAddress.address1 || ''}
                                             onChange={(val) => setEditedAddress({ ...editedAddress, address1: val })}
+                                            autoComplete="off"
+                                        />
+                                        <TextField
+                                            label="Adres Satırı 2 (Bina / Daire / Kat vb.)"
+                                            value={editedAddress.address2 || ''}
+                                            onChange={(val) => setEditedAddress({ ...editedAddress, address2: val })}
                                             autoComplete="off"
                                         />
                                         <InlineStack gap="300">
                                             <TextField
                                                 label="İlçe"
-                                                value={editedAddress.address2 || ''}
-                                                onChange={(val) => setEditedAddress({ ...editedAddress, address2: val })}
+                                                value={editedAddress.city || ''}
+                                                onChange={(val) => setEditedAddress({ ...editedAddress, city: val })}
                                                 autoComplete="off"
                                             />
                                             <TextField
                                                 label="İl"
-                                                value={editedAddress.city || editedAddress.province || ''}
-                                                onChange={(val) => setEditedAddress({ ...editedAddress, city: val })}
+                                                value={editedAddress.province || ''}
+                                                onChange={(val) => setEditedAddress({ ...editedAddress, province: val })}
                                                 autoComplete="off"
                                             />
                                         </InlineStack>
                                         <TextField
                                             label="Posta Kodu"
-                                            value={editedAddress.zip}
+                                            value={editedAddress.zip || ''}
                                             onChange={(val) => setEditedAddress({ ...editedAddress, zip: val })}
                                             autoComplete="off"
                                         />
-                                        <Button variant="primary" onClick={() => setIsEditingAddress(false)}>Kaydet</Button>
+                                        <InlineStack gap="200">
+                                            <Button
+                                                variant="primary"
+                                                onClick={handleSaveAddress}
+                                                loading={isSavingAddress}
+                                            >
+                                                Kaydet
+                                            </Button>
+                                            <Button
+                                                onClick={() => {
+                                                    setEditedAddress(order.shippingAddress);
+                                                    setIsEditingAddress(false);
+                                                }}
+                                            >
+                                                İptal
+                                            </Button>
+                                        </InlineStack>
                                     </BlockStack>
                                 ) : (
                                     editedAddress ? (
@@ -1402,9 +1498,8 @@ export default function OrderDetail() {
                                                 <Text as="p" variant="bodySm">{editedAddress.address2}</Text>
                                             )}
                                             <Text as="p" variant="bodySm">
-                                                {editedAddress.zip} {editedAddress.city}
+                                                {editedAddress.zip ? `${editedAddress.zip} ` : ''}{editedAddress.city}{editedAddress.province ? ` / ${editedAddress.province}` : ''}
                                             </Text>
-                                            <Text as="p" variant="bodySm">{editedAddress.province}</Text>
                                             <Text as="p" variant="bodySm">{editedAddress.phone}</Text>
                                         </BlockStack>
                                     ) : (
@@ -1525,9 +1620,9 @@ export default function OrderDetail() {
                     mok={currentLabelData.mok}
                     orderName={order.name}
                     supplierName={currentLabelData.supplier.name}
-                    receiverName={`${(editedAddress || shippingAddress)?.firstName || ''} ${(editedAddress || shippingAddress)?.lastName || ''}`}
-                    receiverAddress={(editedAddress || shippingAddress)?.address1 || ''}
-                    receiverCity={`${(editedAddress || shippingAddress)?.city || ''}, ${(editedAddress || shippingAddress)?.province || ''}`}
+                    receiverName={`${(editedAddress || shippingAddress)?.firstName || ''} ${(editedAddress || shippingAddress)?.lastName || ''}`.trim()}
+                    receiverAddress={[ (editedAddress || shippingAddress)?.address1, (editedAddress || shippingAddress)?.address2 ].filter(Boolean).join(' ')}
+                    receiverCity={`${(editedAddress || shippingAddress)?.city || ''} / ${(editedAddress || shippingAddress)?.province || ''}`.trim()}
                     receiverPhone={(editedAddress || shippingAddress)?.phone || ''}
                     pieceCount={pieceCount}
                     items={currentLabelData.items}
