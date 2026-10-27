@@ -1060,7 +1060,10 @@ export default function OrderDetail() {
             'PARTIALLY_FULFILLED': { class: 'partially-fulfilled', label: 'Kısmi' },
             'UNFULFILLED': { class: 'pending', label: 'Bekliyor' },
             'PAID': { class: 'paid', label: 'Ödendi' },
-            'PENDING': { class: 'pending', label: 'Bekliyor' },
+            'PENDING': { class: 'unpaid', label: 'Ödenmedi' },
+            'UNPAID': { class: 'unpaid', label: 'Ödenmedi' },
+            'AUTHORIZED': { class: 'unpaid', label: 'Yetkilendirildi' },
+            'PARTIALLY_REFUNDED': { class: 'cancelled', label: 'Kısmen İade' },
             'IN_TRANSIT': { class: 'in-transit', label: 'Kargoda' },
             'DELIVERED': { class: 'delivered', label: 'Teslim' },
         };
@@ -1081,6 +1084,8 @@ export default function OrderDetail() {
         return <span className={`gj-badge ${info.class}`}>{info.label}</span>;
     };
 
+    const isUnpaidOrder = order.displayFinancialStatus && order.displayFinancialStatus !== 'PAID' && order.displayFinancialStatus !== 'PARTIALLY_REFUNDED';
+
     return (
         <Page
             backAction={{ content: 'Geri', onAction: () => navigate('/app/shipments') }}
@@ -1099,6 +1104,11 @@ export default function OrderDetail() {
                 {/* Left Column - Order Details */}
                 <Layout.Section>
                     <BlockStack gap="500">
+                        {isUnpaidOrder && (
+                            <Banner tone="warning" title="Ödenmemiş Sipariş">
+                                <p>Bu sipariş henüz ödenmemiştir ({order.displayFinancialStatus === 'PENDING' ? 'Ödeme Bekliyor' : order.displayFinancialStatus}). Kargo çıkışını normal şekilde yapabilirsiniz.</p>
+                            </Banner>
+                        )}
                         {/* Line Items Selection */}
                         <Card>
                             <BlockStack gap="400">

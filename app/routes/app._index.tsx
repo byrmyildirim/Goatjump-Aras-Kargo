@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { Link as RemixLink, useLoaderData } from "@remix-run/react";
+import { Link as RemixLink, useLoaderData, useNavigate } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -9,11 +9,14 @@ import {
   Button,
   InlineStack,
   Divider,
+  TextField,
+  Icon,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { DeliveryIcon, PackageIcon } from "@shopify/polaris-icons";
+import { DeliveryIcon, PackageIcon, SearchIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { useState } from "react";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
@@ -78,6 +81,16 @@ const getStatusBadge = (status: string) => {
 
 export default function Index() {
   const { stats, recentShipments } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
+  const [quickSearch, setQuickSearch] = useState("");
+
+  const handleQuickSearch = () => {
+    if (quickSearch.trim()) {
+      navigate(`/app/shipments?search=${encodeURIComponent(quickSearch.trim())}`);
+    } else {
+      navigate('/app/shipments');
+    }
+  };
 
   return (
     <Page fullWidth>
@@ -121,6 +134,28 @@ export default function Index() {
                   <Button size="large" icon={PackageIcon}>Ayarlar</Button>
                 </RemixLink>
               </InlineStack>
+
+              {/* Quick Order Search */}
+              <div style={{ marginTop: '20px', maxWidth: '480px' }}>
+                <form onSubmit={(e) => { e.preventDefault(); handleQuickSearch(); }}>
+                  <InlineStack gap="200" blockAlign="center">
+                    <div style={{ flex: 1 }}>
+                      <TextField
+                        label="Hızlı Sipariş Ara"
+                        labelHidden
+                        placeholder="Sipariş no ara (örn: #1001, 26GJ4502)..."
+                        value={quickSearch}
+                        onChange={setQuickSearch}
+                        autoComplete="off"
+                        prefix={<Icon source={SearchIcon} />}
+                      />
+                    </div>
+                    <Button variant="secondary" icon={SearchIcon} onClick={handleQuickSearch}>
+                      Sipariş Bul
+                    </Button>
+                  </InlineStack>
+                </form>
+              </div>
             </div>
 
             {/* Recent Activity */}

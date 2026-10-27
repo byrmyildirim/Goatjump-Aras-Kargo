@@ -192,7 +192,8 @@ strong {
 }
 
 .gj-badge.error,
-.gj-badge.cancelled {
+.gj-badge.cancelled,
+.gj-badge.unpaid {
   background-color: var(--gj-error-bg);
   color: #c53030;
 }

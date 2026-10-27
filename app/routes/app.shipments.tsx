@@ -86,16 +86,34 @@ const getStatusBadge = (status: string, hasTrackingNumber: boolean) => {
 // Order status badge helper
 const getOrderStatusBadge = (fulfillmentStatus: string, financialStatus: string) => {
     const isPartial = fulfillmentStatus === 'PARTIALLY_FULFILLED';
+    const isFulfilled = fulfillmentStatus === 'FULFILLED';
     const isPartiallyRefunded = financialStatus === 'PARTIALLY_REFUNDED';
-    
+    const isPaid = financialStatus === 'PAID';
+    const isUnpaid = financialStatus === 'PENDING' || financialStatus === 'UNPAID' || financialStatus === 'AUTHORIZED';
+
     return (
-        <div style={{ display: 'flex', gap: '5px' }}>
-            <span className={`gj-badge ${isPartial ? 'partially-fulfilled' : 'pending'}`}>
-                {isPartial ? 'Kısmi Tamamlandı' : 'Bekliyor'}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className={`gj-badge ${isPartial ? 'partially-fulfilled' : isFulfilled ? 'delivered' : 'pending'}`}>
+                {isFulfilled ? 'Kargolandı' : isPartial ? 'Kısmi Tamamlandı' : 'Paket Bekliyor'}
             </span>
+            {isPaid && (
+                <span className="gj-badge paid" style={{ backgroundColor: '#e8f5e9', color: '#2e7d32' }}>
+                    Ödendi
+                </span>
+            )}
+            {isUnpaid && (
+                <span className="gj-badge unpaid" style={{ backgroundColor: '#ffebee', color: '#c62828', fontWeight: 600 }}>
+                    {financialStatus === 'AUTHORIZED' ? 'Yetkilendirildi' : 'Ödenmedi'}
+                </span>
+            )}
             {isPartiallyRefunded && (
-                <span className="gj-badge cancelled" style={{ backgroundColor: '#ffea8a', color: '#5c3b00' }}>
+                <span className="gj-badge cancelled" style={{ backgroundColor: '#fff8e1', color: '#f57f17' }}>
                     Kısmen İade
+                </span>
+            )}
+            {!isPaid && !isUnpaid && !isPartiallyRefunded && financialStatus && (
+                <span className="gj-badge pending">
+                    {financialStatus}
                 </span>
             )}
         </div>
@@ -114,16 +132,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const reqUrl = new URL(request.url);
     const fromParam = reqUrl.searchParams.get("from") || "";
     const toParam = reqUrl.searchParams.get("to") || "";
+    const searchParam = reqUrl.searchParams.get("search")?.trim() || "";
 
     try {
         const { admin } = await authenticate.admin(request);
 
-        // 1. Get Unfulfilled Orders from Shopify
+        // 1. Get Orders from Shopify
         try {
+            let orderQuery = "(fulfillment_status:unfulfilled OR fulfillment_status:partial) AND (financial_status:paid OR financial_status:partially_refunded) AND (status:open)";
+
+            if (searchParam) {
+                const cleanTerm = searchParam.replace(/^#/, "").trim();
+                // When searching, do NOT restrict to paid orders, so unpaid orders can also be fetched!
+                orderQuery = cleanTerm.includes(" ")
+                    ? `"${cleanTerm}"`
+                    : `name:${cleanTerm} OR name:#${cleanTerm} OR ${cleanTerm}`;
+            }
+
             const response = await admin.graphql(
                 `#graphql
-              query getUnfulfilledOrders {
-                orders(first: 50, query: "(fulfillment_status:unfulfilled OR fulfillment_status:partial) AND (financial_status:paid OR financial_status:partially_refunded) AND (status:open)") {
+              query getOrders($queryString: String!) {
+                orders(first: 50, query: $queryString) {
                   edges {
                     node {
                             id
@@ -155,7 +184,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
                         }
                     }
                 }
-            }`
+            }`,
+                { variables: { queryString: orderQuery } }
             );
 
             const responseJson = await response.json();
@@ -266,7 +296,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             s.orderId.startsWith("gid://") ? s.orderId : `gid://shopify/Order/${s.orderId}`
         ));
 
-        const filteredOrders = orders.filter((order: any) => !shippedOrderIds.has(order.id));
+        const filteredOrders = searchParam
+            ? orders
+            : orders.filter((order: any) => !shippedOrderIds.has(order.id));
 
         // 3. Get Settings and Suppliers
         try {
@@ -277,11 +309,31 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             errors.push("Ayarlar yüklenemedi.");
         }
 
-        return json({ orders: filteredOrders, localShipments, deliveredShipments, settings, suppliers, errors, dateFrom: fromParam, dateTo: toParam });
+        return json({
+            orders: filteredOrders,
+            localShipments,
+            deliveredShipments,
+            settings,
+            suppliers,
+            errors,
+            dateFrom: fromParam,
+            dateTo: toParam,
+            searchQuery: searchParam
+        });
     } catch (error) {
         console.error("Critical Loader Error:", error);
         // Even if auth fails or catastrophic error, try not to crash
-        return json({ orders: [], localShipments: [], deliveredShipments: [], settings: null, suppliers: [], errors: ["Kritik Sistem Hatası: " + (error as Error).message], dateFrom: fromParam, dateTo: toParam });
+        return json({
+            orders: [],
+            localShipments: [],
+            deliveredShipments: [],
+            settings: null,
+            suppliers: [],
+            errors: ["Kritik Sistem Hatası: " + (error as Error).message],
+            dateFrom: fromParam,
+            dateTo: toParam,
+            searchQuery: searchParam
+        });
     }
 };
 
@@ -1143,10 +1195,37 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Shipments() {
-    const { orders, localShipments, deliveredShipments, suppliers, errors, dateFrom, dateTo } = useLoaderData<typeof loader>();
+    const { orders, localShipments, deliveredShipments, suppliers, errors, dateFrom, dateTo, searchQuery } = useLoaderData<typeof loader>();
     const fetcher = useFetcher();
     const navigate = useNavigate();
     const navigation = useNavigation();
+
+    // Order number search state
+    const [orderSearchInput, setOrderSearchInput] = useState<string>(searchQuery || "");
+
+    useEffect(() => {
+        setOrderSearchInput(searchQuery || "");
+    }, [searchQuery]);
+
+    const handleOrderSearch = () => {
+        const term = orderSearchInput.trim();
+        const params = new URLSearchParams(window.location.search);
+        if (term) {
+            params.set("search", term);
+        } else {
+            params.delete("search");
+        }
+        const qs = params.toString();
+        navigate({ search: qs ? `?${qs}` : "" }, { replace: true });
+    };
+
+    const handleClearOrderSearch = () => {
+        setOrderSearchInput("");
+        const params = new URLSearchParams(window.location.search);
+        params.delete("search");
+        const qs = params.toString();
+        navigate({ search: qs ? `?${qs}` : "" }, { replace: true });
+    };
 
     // Date-range filter for the "Teslim Edilenler" tab (synced with the URL via the loader)
     const [filterFrom, setFilterFrom] = useState<string>(dateFrom || "");
@@ -1214,7 +1293,9 @@ export default function Shipments() {
         return localShipments.some((s: any) => (s.orderId === orderId || s.orderId === order.id) && s.status === 'SENT_TO_ARAS');
     });
 
-    const currentOrders = selectedOrderTab === 0 ? ordersToPackage : ordersPrepared;
+    const currentOrders = searchQuery
+        ? orders
+        : (selectedOrderTab === 0 ? ordersToPackage : ordersPrepared);
 
     const tabs = [
         {
@@ -1346,16 +1427,81 @@ export default function Shipments() {
                 <Layout>
                     <Layout.Section>
                         <div className="gj-card">
-                            <div className="gj-card-header" style={{ paddingBottom: 0 }}>
-                                <BlockStack gap="200">
-                                    <h3>Sipariş Listesi</h3>
-                                    <Tabs tabs={orderTabs} selected={selectedOrderTab} onSelect={setSelectedOrderTab} fitted />
+                            <div className="gj-card-header" style={{ paddingBottom: '16px' }}>
+                                <BlockStack gap="300">
+                                    <InlineStack align="space-between" blockAlign="center">
+                                        <h3>Sipariş Listesi</h3>
+                                        {searchQuery && (
+                                            <Badge tone="info">
+                                                {`Arama: "${searchQuery}" (${orders.length} sipariş)`}
+                                            </Badge>
+                                        )}
+                                    </InlineStack>
+
+                                    {/* Order Search Box */}
+                                    <form onSubmit={(e) => { e.preventDefault(); handleOrderSearch(); }}>
+                                        <InlineStack gap="200" blockAlign="center">
+                                            <div style={{ flex: 1 }}>
+                                                <TextField
+                                                    label="Sipariş Numarası Ara"
+                                                    labelHidden
+                                                    placeholder="Sipariş No Ara (örn: #1001, 26GJ4502)..."
+                                                    value={orderSearchInput}
+                                                    onChange={setOrderSearchInput}
+                                                    autoComplete="off"
+                                                    clearButton
+                                                    onClearButtonClick={handleClearOrderSearch}
+                                                    prefix={<Icon source={SearchIcon} />}
+                                                />
+                                            </div>
+                                            <Button
+                                                variant="primary"
+                                                icon={SearchIcon}
+                                                onClick={handleOrderSearch}
+                                                loading={navigation.state === 'loading'}
+                                            >
+                                                Ara
+                                            </Button>
+                                            {searchQuery && (
+                                                <Button
+                                                    variant="secondary"
+                                                    onClick={handleClearOrderSearch}
+                                                >
+                                                    Temizle
+                                                </Button>
+                                            )}
+                                        </InlineStack>
+                                    </form>
+
+                                    {!searchQuery ? (
+                                        <Tabs tabs={orderTabs} selected={selectedOrderTab} onSelect={setSelectedOrderTab} fitted />
+                                    ) : (
+                                        <div style={{ padding: '8px 12px', background: '#f4f6f8', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <Text as="span" variant="bodySm">
+                                                ℹ️ <strong>"{searchQuery}"</strong> araması listeleniyor (Ödenmemiş siparişler dahil).
+                                            </Text>
+                                            <Button variant="plain" tone="critical" size="micro" onClick={handleClearOrderSearch}>
+                                                Filtreyi Kaldır
+                                            </Button>
+                                        </div>
+                                    )}
                                 </BlockStack>
                             </div>
                             <div className="gj-card-body">
                                 {currentOrders.length === 0 ? (
                                     <Box padding="400">
-                                        <Text as="p" tone="subdued">Bu kategoride sipariş bulunamadı.</Text>
+                                        <BlockStack gap="200" inlineAlign="center">
+                                            <Text as="p" tone="subdued">
+                                                {searchQuery
+                                                    ? `"${searchQuery}" numaralı sipariş bulunamadı. Lütfen sipariş numarasını kontrol edip tekrar deneyin.`
+                                                    : "Bu kategoride sipariş bulunamadı."}
+                                            </Text>
+                                            {searchQuery && (
+                                                <Button size="micro" onClick={handleClearOrderSearch}>
+                                                    Tüm Siparişleri Göster
+                                                </Button>
+                                            )}
+                                        </BlockStack>
                                     </Box>
                                 ) : (
                                     <div style={{ overflowX: 'auto' }}>
@@ -1367,6 +1513,7 @@ export default function Shipments() {
                                                     <th>Sipariş No</th>
                                                     <th>Müşteri Adı</th>
                                                     <th>Durum</th>
+                                                    <th style={{ textAlign: 'right' }}>İşlem</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -1379,6 +1526,9 @@ export default function Shipments() {
                                                             <td><span style={{ fontWeight: 700, color: 'var(--gj-primary)' }}>{name}</span></td>
                                                             <td>{shippingAddress?.firstName} {shippingAddress?.lastName}</td>
                                                             <td>{getOrderStatusBadge(item.displayFulfillmentStatus, item.displayFinancialStatus)}</td>
+                                                            <td style={{ textAlign: 'right' }} onClick={(e) => { e.stopPropagation(); handleOrderClick(item); }}>
+                                                                <Button size="micro" variant="primary">Kargo Çıkışı</Button>
+                                                            </td>
                                                         </tr>
                                                     );
                                                 })}
